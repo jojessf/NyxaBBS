@@ -7,6 +7,7 @@ package Net::BBS::Nyxa;
 use strict;
 # use warnings;
 use Storable qw(dclone);
+use Thread;
 use IO::Socket::INET;                # https://metacpan.org/pod/IO::Socket::INET
 use Text::Convert::PETSCII qw/:all/; # https://metacpan.org/pod/Text::Convert::PETSCII
 # --------------------------------------------------------------------------- #
@@ -19,6 +20,7 @@ my %ServerParms = (
     Listen => SOMAXCONN, # 4096
     ReuseAddr => 1,
     verbose => 1,
+    Threads => {},
     PETSCIISplash00FI => "testbbs_nyxa05_splash",
     bbsmenumsg => "\r\n\r\n\@PCX{CYAN}~\@PCX{LIGHTBLUE}UwU\@PCX{CYAN}~\@PCX{PURPLE}".
                   "NyxaBBS\@PCX{LIGHTGRAY}:\@PCX{LIGHTGREEN}MainMenu".
@@ -45,14 +47,14 @@ if ( -e $ServerParms{PETSCIISplash00FI} ) {
 print "ingested " . $ServerParms{PETSCIISplash00FI} . "\t" . length($ServerParms{PETSCIISplash00}) . " B\n";
 # exit;
 # --------------------------------------------------------------------------- #
+# Server Socket 
+# --------------------------------------------------------------------------- #
+$ServerParms{Threads} = {} if $ServerParms{Threads} eq undef;
 my $server_socket = new IO::Socket::INET (
     %ServerParms
 );
 $server_socket || die $IO::Socket::errst; # works
 
-
-my $sock;
-my $user_data;
 # --------------------------------------------------------------------------- #
 sub colorcodes {
    my $msg = shift;
@@ -87,6 +89,7 @@ sub IO::Socket::INET::sendbbs {
    my $self       = shift;
    my $user_conf  = shift;
    my $msg        = shift;
+   my $sock       = $user_conf->{sock};
    $msg =~ s/\n//g if $user_conf->{PETSCII};
    # ---------------------- #
    $msg = ascii_to_petscii($msg) if $user_conf->{PETSCII};
@@ -109,8 +112,8 @@ print "Jojess BBS Init :3\r\n";
 # --------------------------------------------------------------------------- #
 CONNECTION: while(1) {
 
-   next CONNECTION unless $sock = $server_socket->accept();
-
+   next CONNECTION unless my $sock = $server_socket->accept();
+   my $user_data;
    my %user_conf    = %{dclone \%UserParmDefault};
 
    my $user_ip      = $sock->peerhost();
@@ -118,6 +121,7 @@ CONNECTION: while(1) {
 
    $user_conf{ip}   = $user_ip;
    $user_conf{port} = $user_port;
+   $user_conf{sock} = $sock;
 
    # 
    my $response = "CONNECTED: $user_ip : $user_port. \r\n";
@@ -139,7 +143,7 @@ CONNECTION: while(1) {
          $sock->sendbbs(\%user_conf, $res);
          last;
       } elsif ( $user_data =~ /^.*[\r\n]*$/i ) {
-         my $res = "No PETSCII\r\n";
+         my $res = "No PETSCII - You should try with a C64, though!\r\n";
          $user_conf{PETSCII} = 0;
          $sock->sendbbs(\%user_conf, $res);
          last
@@ -209,9 +213,9 @@ CONNECTION: while(1) {
       # ----------------------------- #
       if ( $user_data =~ /^(s|stats)[\r\n]*$/i ) {
          my $msg = "\r\n";
-         foreach my $key (sort keys %user_conf) {
+         UCKey: foreach my $key (sort keys %user_conf) {
+            next UCKey if $key eq "sock";
             my $val   = $user_conf{$key};
-               $val ||= "";
             my $smsg = "[ $key ] $val\r\n";
             $sock->sendbbs(\%user_conf, $smsg);
          }
