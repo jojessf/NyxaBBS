@@ -2,6 +2,7 @@
 # --------------------------------------------------------------------------- #
 # Jojess Fournier 20240614
 # --------------------------------------------------------------------------- #
+$SIG{CHLD} = sub { wait; };
 use strict;
 # use warnings;
 use IO::Socket::INET;                # https://metacpan.org/pod/IO::Socket::INET
@@ -16,7 +17,9 @@ my %ServerParms = (
     Listen => SOMAXCONN, # 4096
     ReuseAddr => 1,
     verbose => 1,
-    Threads => {},
+    # Threads => {},
+    debugdir  => 'debug',
+    logdir    => 'log',
     PETSCIISplash00FI => "testbbs_nyxa05_splash",
     bbsmenumsg => "\r\n\r\n\@PCX{CYAN}~\@PCX{LIGHTBLUE}UwU\@PCX{CYAN}~\@PCX{PURPLE}".
                   "NyxaBBS\@PCX{LIGHTGRAY}:\@PCX{LIGHTGREEN}MainMenu".
@@ -110,9 +113,10 @@ exit;
 # --------------------------------------------------------------------------- #
 # /\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ #
 # --------------------------------------------------------------------------- #
-use Thread;
 package Net::BBS::Nyxa;
+use strict;
 use Storable qw(dclone);
+use Data::Dumper;
 # --------------------------------------------------------------------------- #
 # /\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ #
 # --------------------------------------------------------------------------- #
@@ -138,6 +142,26 @@ sub new {
    return $self;
 };
 
+sub debug {
+   my $self  = shift;
+   my $msg   = shift;
+   my $lvl   = shift;
+      $lvl //= "debug";
+   if ( $lvl =~ /[a-zA-Z]/ ) {
+      print $msg . "\n" if $ENV{DEBUG} eq $lvl; 
+   } else {
+      print $msg . "\n" if $ENV{DEBUG} >= $lvl; 
+   }
+   
+   if ( ! -d $self->{ServerParms}->{debugdir} ) {
+      mkdir($self->{ServerParms}->{debugdir}) or die "can't mkdir" . __LINE__ . "\n";
+   }
+   open DLOG, ">>" . $self->{ServerParms}->{debugdir}."/".$lvl.".".$self->{threadq}.".log";
+   print DLOG $msg . "\n";
+   close DLOG;
+   return;
+}
+
 sub sleep {
    my $self  = shift;
    my $sleep = shift;
@@ -158,47 +182,43 @@ sub listen {
    CONNECTION: while(1) {
 
       next CONNECTION unless my $sock = $self->{server_socket}->accept();
-            
-      my $user_data;
-      my %user_conf    = %{dclone $self->{UserParmDefault}};
-         $user_conf{ip}   = $sock->peerhost();
-         $user_conf{port} = $sock->peerport();
-         $user_conf{sock} = $sock;
-
-      $self->{threadq}++;
-      $self->{threadopenq}++;
-      my $tid = $self->{threadq};
-      $self->{threads}->{ $tid }->{sock}      = $sock;
-      $self->{threads}->{ $tid }->{user_conf} = dclone $self->{UserParmDefault};
-      $self->{threads}->{ $tid }->{user_conf}->{ip}   = $sock->peerhost();
-      $self->{threads}->{ $tid }->{user_conf}->{port} = $sock->peerport();
-      $self->{threads}->{ $tid }->{user_conf}->{sock} = $sock;
       
-      $self->{threads}->{ $tid }->{thread}    = Thread->new( \&{ $self->menu_zero($tid) } , $tid );
+      my $pid = fork();
+      die "cannot fork $!" unless defined($pid);
+      
+      if ( $pid == 0 ) {
+         $pid = $$;
+         
+         my $user_data;
+         my %user_conf       = %{dclone $self->{UserParmDefault}};
+            $user_conf{ip}   = $sock->peerhost();
+            $user_conf{port} = $sock->peerport();
+            $user_conf{sock} = $sock;
 
-      foreach my $ktid ( keys %{$self->{threads}} ) {
-         print "Watching $ktid ...\n" if $ENV{DEBUG} eq 'THREADS';
-         if ( $self->{threads}->{ $ktid }->{thread}->done == 1 ) {
-            print "Reaping $ktid ...\n" if $ENV{DEBUG} eq 'THREADS';
-            $self->{threads}->{ $ktid }->{thread}->yield;
-            $self->{threadopenq}--;
-            delete $self->{threads}->{ $ktid };
-         }
+         $self->{threadq}++;
+         $self->{threadopenq}++;
+
+         $self->{threads}->{ $pid }->{sock}      = $sock;
+         $self->{threads}->{ $pid }->{user_conf} = dclone $self->{UserParmDefault};
+         $self->{threads}->{ $pid }->{user_conf}->{ip}   = $sock->peerhost();
+         $self->{threads}->{ $pid }->{user_conf}->{port} = $sock->peerport();
+         $self->{threads}->{ $pid }->{user_conf}->{sock} = $sock;
+         
+         $self->menu_zero($pid);
       }
-
 
       $self->sleep(0.05); # sleep for 50ms between new sockets
    }
+   return;
 }
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 sub menu_zero {
    my $self        = shift;
    my $tid         = shift;
-   my $tid2         = shift;
    my $sock        = $self->{threads}->{ $tid }->{sock};
    my $thread      = $self->{threads}->{ $tid }->{thread};
-   print "MZDEBUG]" . $tid . "\t" . $sock . "\t<" . $tid2 . ">\n" if $ENV{DEBUG};
+   
    my $user_conf   = $self->{threads}->{ $tid }->{user_conf};
    my %ServerParms = %{ $self->{ServerParms} };
    my $user_data   = undef;
@@ -209,7 +229,6 @@ sub menu_zero {
       $response .= " ... ENTER/RETURN to continue\r\n";
    # $response .= "[q]uit [l]ogin [s]tats\n";
    $sock->sendbbs($user_conf, $response);
-   
    # --------------------------------------------------------------------------- #
    # Net::BBS::Nyxa::PRE
    # --------------------------------------------------------------------------- #
@@ -229,7 +248,7 @@ sub menu_zero {
       last ZEROCON;
    } # Net::BBS::Nyxa::PRE / while connected
    
-   print "MZDEBUG]" . $tid . "\t" . $sock . "\t<" . $thread . "> ".__LINE__."\n" if $ENV{DEBUG};
+   print "MZDEBUG]" . $tid . "\t" . $sock . "\t<" . $thread . "> ".__LINE__."\n" if $ENV{DEBUG} eq "THREADS";
    
    return;
 }
@@ -244,7 +263,7 @@ sub menu_main {
    my %user_conf   = %{ $self->{threads}->{ $tid }->{user_conf} };
    my %ServerParms = %{ $self->{ServerParms} };
    my $user_data   = undef;
-   
+
       # --------------------------------------------------------------------------- #
       if ( $user_conf{PETSCII} ) {
          foreach my $pc (split/\r/, $ServerParms{PETSCIISplash00}) {$sock->send($pc."\r");}
@@ -273,6 +292,16 @@ sub menu_main {
             $self->skipsplash;
             last MMCON;
          } # quit 
+
+         # ----------------------------- #
+         # [debug]
+         # ----------------------------- #
+         if ( $user_data =~ /^(debug)[\r\n]*$/i ) {
+            $self->debug(Dumper([$self]),"dump");
+            $sock->sendbbs(\%user_conf, "Running DEBUG dump");
+            $self->skipsplash;
+         }
+         
 
          # ----------------------------- #
          # [c]olortest
@@ -340,7 +369,6 @@ sub menu_main {
                   foreach my $pc (split/\r/, $ServerParms{PETSCIISplash00}) {$sock->send($pc."\r");}
                }
             }
-
             $sock->sendbbs(\%user_conf, $ServerParms{bbsmenumsg});
          }
          
