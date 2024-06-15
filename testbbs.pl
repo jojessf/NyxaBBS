@@ -5,43 +5,97 @@
 package Net::BBS::Nyxa;
 # --------------------------------------------------------------------------- #
 use strict;
-use warnings;
-use IO::Socket::INET;
+# use warnings;
 use Storable qw(dclone);
+use IO::Socket::INET;                # https://metacpan.org/pod/IO::Socket::INET
 use Text::Convert::PETSCII qw/:all/; # https://metacpan.org/pod/Text::Convert::PETSCII
 # --------------------------------------------------------------------------- #
 my %ServerParms = (
     # IO::Socket::INET
+    # LocalHost => '8.8.8.8',
     # LocalHost => '127.0.0.1', # restrict to ip/iface
     LocalPort => '6400',
     Proto => 'tcp',
-    Listen => SOMAXCONN,
+    Listen => SOMAXCONN, # 4096
     ReuseAddr => 1,
     verbose => 1,
+    PETSCIISplash00FI => "testbbs_nyxa05_splash",
+    bbsmenumsg => "\r\n\r\n\@PCX{CYAN}~\@PCX{LIGHTBLUE}UwU\@PCX{CYAN}~\@PCX{PURPLE}".
+                  "NyxaBBS\@PCX{LIGHTGRAY}:\@PCX{LIGHTGREEN}MainMenu".
+                  "\@PCX{CYAN}~\@PCX{LIGHTGRAY}\@PCX{LIGHTBLUE}UwU\@PCX{CYAN}~\@PCX{LIGHTGRAY} \r\n\r\n" . 
+                  "[\@PCX{RED}q\@PCX{LIGHTGRAY}]uit [\@PCX{CYAN}l\@PCX{LIGHTGRAY}]ogin [\@PCX{GREEN}r\@PCX{LIGHTGRAY}]egister [\@PCX{PURPLE}s\@PCX{LIGHTGRAY}]tats\r\n",  # $ServerParms{bbsmenumsg}
     # JojessBBS
 );
+
 my %UserParmDefault = (
    user => undef,
    pass => undef,
    port => undef,
    ip   => undef,
-   PETSCII => 0,
+   PETSCII => 0, # $user_conf{PETSCII}
 );
+# --------------------------------------------------------------------------- #
+if ( -e $ServerParms{PETSCIISplash00FI} ) {
+   open IF, "<" . $ServerParms{PETSCIISplash00FI};
+   while (<IF>) { $ServerParms{PETSCIISplash00} .= $_; }
+   close IF;
+   $ServerParms{PETSCIISplash00} =~ s/\n/\r/g; # trim first 6 chars of basic file
+   $ServerParms{PETSCIISplash00} = "\x9F".$ServerParms{PETSCIISplash00}."\x9B"
+}
+print "ingested " . $ServerParms{PETSCIISplash00FI} . "\t" . length($ServerParms{PETSCIISplash00}) . " B\n";
+# exit;
 # --------------------------------------------------------------------------- #
 my $server_socket = new IO::Socket::INET (
     %ServerParms
 );
+$server_socket || die $IO::Socket::errst; # works
+
 
 my $sock;
 my $user_data;
+# --------------------------------------------------------------------------- #
+sub colorcodes {
+   my $msg = shift;
+   $msg =~ s/\@pcx{white}/\x05/g; # must be lc here!
+   $msg =~ s/\@pcx{red}/\x1C/g;
+   $msg =~ s/\@pcx{green}/\x1E/g;
+   $msg =~ s/\@pcx{blue}/\x1F/g;
+   $msg =~ s/\@pcx{orange}/\x81/g;
+   $msg =~ s/\@pcx{black}/\x90/g;
+   $msg =~ s/\@pcx{brown}/\x95/g;
+   $msg =~ s/\@pcx{pink}/\x96/g;
+   $msg =~ s/\@pcx{darkgray}/\x97/g;
+   $msg =~ s/\@pcx{gray}/\x98/g;
+   $msg =~ s/\@pcx{lightgreen}/\x99/g;
+   $msg =~ s/\@pcx{lightblue}/\x9A/g;
+   $msg =~ s/\@pcx{lightgray}/\x9B/g;
+   $msg =~ s/\@pcx{purple}/\x9C/g;
+   $msg =~ s/\@pcx{yellow}/\x9E/g;
+   $msg =~ s/\@pcx{cyan}/\x9F/g;
+   return $msg;
+}
+sub scrubcodes {
+   my $msg = shift;
+   $msg =~ s/\@PCX{[a-zA-Z]+?}//g; # must be caps here! 
+   return $msg;
+}
+
 # --------------------------------------------------------------------------- #
 sub IO::Socket::INET::sendbbs {
    my $self       = shift;
    my $user_conf  = shift;
    my $msg        = shift;
    $msg =~ s/\n//g if $user_conf->{PETSCII};
+   # ---------------------- #
    $msg = ascii_to_petscii($msg) if $user_conf->{PETSCII};
+   
+   if ( $user_conf->{PETSCII} )   { $msg = colorcodes($msg) };
+   if ( ! $user_conf->{PETSCII} ) { $msg = scrubcodes($msg) };
+   
+   print "PCX>>$msg<<\n" if $ENV{DEBUG} eq 'sendbbs';
+   
    $sock->send($msg);
+   # ---------------------- #
    return 1;
 }
 # --------------------------------------------------------------------------- #
@@ -60,7 +114,7 @@ next unless $sock = $server_socket->accept();
    $user_conf{port} = $user_port;
 
    # 
-   my $response = "Connected: $user_ip : $user_port. \r\n";
+   my $response = "CONNECTED: $user_ip : $user_port. \r\n";
       print "$response" if $ServerParms{verbose} >= 1;
       $response .= "[c]64 to enable PETSCII\r\n";
       $response .= " ... ENTER/RETURN to continue\r\n";
@@ -74,7 +128,7 @@ next unless $sock = $server_socket->accept();
       $sock->recv( $user_data,  1024 );
       # ----------------------------- #
       if ( $user_data =~ /^(c|c64)[\r\n]*$/i ) {
-         my $res = "Enabling PETSCII...!\r\n";
+         my $res = "Enabling PETSCII...!\r\n\r\n";
          $user_conf{PETSCII} = 1;
          $sock->sendbbs(\%user_conf, $res);
          last;
@@ -86,9 +140,11 @@ next unless $sock = $server_socket->accept();
       }
    } # Net::BBS::Nyxa::PRE / while connected
    
-   $response = "~ UwU ~ MAIN MENU ~ UwU ~\r\n";
-   $response .= "[q]uit [l]ogin [s]tats\r\n";
-   $sock->sendbbs(\%user_conf, $response);
+   # --------------------------------------------------------------------------- #
+   if ( $user_conf{PETSCII} ) {
+      foreach my $pc (split/\r/, $ServerParms{PETSCIISplash00}) {$sock->send($pc."\r");}
+   }
+   $sock->sendbbs(\%user_conf, $ServerParms{bbsmenumsg});
    # --------------------------------------------------------------------------- #
    # Net::BBS::Nyxa::MAIN 
    # --------------------------------------------------------------------------- #
@@ -108,19 +164,47 @@ next unless $sock = $server_socket->accept();
       } # quit 
 
       # ----------------------------- #
+      # [c]ogin
+      # ----------------------------- #
+      if ( $user_data =~ /^(c|colortest)[\r\n]*$/i ) {
+         my $msg = "\r\n[c]olortest\r\n";
+         $sock->sendbbs(\%user_conf, $msg);
+         
+         $msg = "";
+         $msg .= "\@PCX{RED}...\@PCX{CYAN}UWU\@PCX{LIGHTGRAY}OWO";
+         $sock->sendbbs(\%user_conf, $msg);
+         
+         $msg = "\r\n...\r\n\r\n";
+         $sock->sendbbs(\%user_conf, $msg);
+      }
+
+      # ----------------------------- #
+      # [l]ogin
+      # ----------------------------- #
+      if ( $user_data =~ /^(l|login)[\r\n]*$/i ) {
+         my $msg = "[l]ogin wip\r\n";
+         $sock->sendbbs(\%user_conf, $msg);
+      }
+
+      # ----------------------------- #
+      # [r]egister
+      # ----------------------------- #
+      if ( $user_data =~ /^(r|register)[\r\n]*$/i ) {
+         my $msg = "[r]egistration wip\r\n";
+         $sock->sendbbs(\%user_conf, $msg);
+      }
+      
+      # ----------------------------- #
       # [s]tats 
       # ----------------------------- #
       if ( $user_data =~ /^(s|stats)[\r\n]*$/i ) {
-         my $msg = "\n";
-            $msg .= "stats WIP! ^^;\r\n";
-         
+         my $msg = "\r\n";
          foreach my $key (sort keys %user_conf) {
             my $val   = $user_conf{$key};
                $val ||= "";
             my $smsg = "[ $key ] $val\r\n";
             $sock->sendbbs(\%user_conf, $smsg);
          }
-         
          $sock->sendbbs(\%user_conf, $msg);
       } # stats
 
@@ -128,9 +212,13 @@ next unless $sock = $server_socket->accept();
       # REPRINT MAIN MENU
       # ----------------------------- #
       if ($user_data) {
-         my $res = "\n ~ UwU ~ MAIN MENU ~ UwU ~ \r\n";
-            $res .= "[q]uit [l]ogin [s]tats\r\n";
-         $sock->sendbbs(\%user_conf, $res);
+         
+         if ( $user_conf{PETSCII} ) {
+            foreach my $pc (split/\r/, $ServerParms{PETSCIISplash00}) {$sock->send($pc."\r");}
+         }
+         
+         
+         $sock->sendbbs(\%user_conf, $ServerParms{bbsmenumsg});
       }
       
    } # Net::BBS::Nyxa::MAIN / while connected 
