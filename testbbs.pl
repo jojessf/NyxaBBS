@@ -164,7 +164,7 @@ next unless $sock = $server_socket->accept();
       } # quit 
 
       # ----------------------------- #
-      # [c]ogin
+      # [c]olortest
       # ----------------------------- #
       if ( $user_data =~ /^(c|colortest)[\r\n]*$/i ) {
          my $msg = "\r\n[c]olortest\r\n";
