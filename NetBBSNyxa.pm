@@ -624,3 +624,5 @@ sub menu_bbs {
 
 
 1;
+
+# uwu
