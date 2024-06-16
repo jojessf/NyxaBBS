@@ -6,8 +6,10 @@ package Net::BBS::Nyxa;
 # --------------------------------------------------------------------------- #
 use strict;
 use Storable qw(dclone);
+use JSON;
 use Data::Dumper;
 use Text::Convert::PETSCII qw/:all/; # https://metacpan.org/pod/Text::Convert::PETSCII
+use File::Path qw(make_path);
 # --------------------------------------------------------------------------- #
 # /\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ #
 # --------------------------------------------------------------------------- #
@@ -21,6 +23,7 @@ sub new {
       ServerParms     => $serverparm,
       threads         => {},
       threadq         => 0,
+      json            => JSON->new->allow_nonref,
       UserParmDefault => {
          'user' => undef,
          'pass' => undef,
@@ -30,6 +33,13 @@ sub new {
       },
    };
    bless($self, $class);
+
+   mkdir $self->{ServerParms}->{confdir} if ! -d $self->{ServerParms}->{confdir};
+   die "$class FATAL no confdir ".$self->{ServerParms}->{confdir}." \@"   . __LINE__ if ! -d $self->{ServerParms}->{confdir};
+   
+   mkdir $self->{ServerParms}->{logdir} if ! -d $self->{ServerParms}->{logdir};
+   die "$class FATAL no logdir  ".$self->{ServerParms}->{logdir}." \@" . __LINE__ if ! -d $self->{ServerParms}->{logdir};
+   
    return $self;
 };
 
@@ -55,8 +65,8 @@ sub sendbbs {
 
 sub debug {
    my $self  = shift;
-   my $msg   = shift;
    my $lvl   = shift;
+   my $msg   = shift;
       $lvl //= "debug";
    if ( $lvl =~ /[a-zA-Z]/ ) {
       print $msg . "\n" if $ENV{DEBUG} eq $lvl; 
@@ -73,18 +83,68 @@ sub debug {
    return;
 }
 
+sub getconf {
+   my $self  = shift;
+   my $file  = shift;
+   my $hash  = {};
+   my $filepath = $self->{ServerParms}->{confdir} . "/" . $file;
+   
+   $self->debug("conf", "getconf - $filepath");
+     
+   if ( ! -e $filepath ) {
+      $self->debug("conf", "getconf - $filepath - failed");
+      return 0;
+   }
+   
+   my $slurp;
+   open IF, "<", $filepath;
+   while(<IF>) {$slurp .= $_}
+   close IF;
+   
+   $hash = $self->{json}->decode( $slurp );
+   
+   $self->debug("conf", "getconf - OK - $slurp");
+   
+   select(undef,undef,undef,0.05);
+   return $hash;
+} # getconf
+
+sub saveconf {
+   my $self  = shift;
+   my $file  = shift;
+   my $hash  = shift;
+   my $filepath = $self->{ServerParms}->{confdir} . "/" . $file;
+   my $testpath = $filepath;
+      $testpath =~ s/^(.*)\/.*/$1/;
+
+   $self->debug("conf", "saveconf - $filepath");
+
+   make_path($testpath) if ! -d $testpath;
+   die $self->{class} . "ERROR - can't make_path $testpath" if ! -d $testpath;
+      
+   my $jsonstr = $self->{json}->pretty->encode( $hash );
+   
+   open OF, ">", $filepath;
+   print OF $jsonstr;
+   close OF;
+   
+   select(undef,undef,undef,0.05);
+   return 1;
+} # saveconf
+
+
 sub sleep {
    my $self  = shift;
    my $sleep = shift;
    select(undef,undef,undef,$sleep);
    return;
-}
+} # sleep
 
 sub skipsplash {
    my $self = shift;
    $self->{skipsplash}++;
    return;
-}
+} # skipsplash
 
 sub colorcodes {
    my $self = shift;
@@ -106,14 +166,14 @@ sub colorcodes {
    $msg =~ s/\@pcx{yellow}/\x9E/g;
    $msg =~ s/\@pcx{cyan}/\x9F/g;
    return $msg;
-}
+} # colorcodes
 
 sub scrubcodes {
    my $self = shift;
    my $msg = shift;
    $msg =~ s/\@PCX{[a-zA-Z]+?}//g; # must be caps here! 
    return $msg;
-}
+} # scrubcodes
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 sub listen {
@@ -144,6 +204,7 @@ sub listen {
          $self->{threads}->{ $pid }->{user_conf}->{ip}   = $sock->peerhost();
          $self->{threads}->{ $pid }->{user_conf}->{port} = $sock->peerport();
          $self->{threads}->{ $pid }->{user_conf}->{sock} = $sock;
+         $self->{threads}->{ $pid }->{user_conf}->{tid}  = $pid;
          
          $self->menu_zero($pid);
       }
@@ -151,8 +212,41 @@ sub listen {
       $self->sleep(0.05); # sleep for 50ms between new sockets
    }
    return;
-}
+} # listen
 # --------------------------------------------------------------------------- #
+
+sub prompt {
+   my $self       = shift;
+   my $user_conf  = shift;
+   my $msg        = shift;
+   my $prompt_opt = shift;
+   my $sock       = $user_conf->{sock};
+   
+   my $userinput;
+   $self->sendbbs($user_conf, $msg);
+   
+   my $user_data;
+   my ($charq, $charlim) = (1,2048);
+   
+   $charlim = $prompt_opt->{charlim} if $prompt_opt->{charlim};
+   
+   PromptCharIn: until ( $user_data =~ m/[\r\n]/ ) {
+      $sock->recv( $user_data, 8 );
+      
+      if ( ($user_conf->{PETSCII}) && ( ! $prompt_opt->{noecho} ) ) {
+         $self->sendbbs($user_conf, $user_data);
+      }
+      
+      $userinput .= $user_data;
+      $charq++;
+      last PromptCharIn if $charq>=$charlim;
+   }
+   
+   $userinput =~ s/[\r\n]$//g;
+   $userinput = lc($userinput);
+   $self->sendbbs($user_conf, "\r\n");
+   return $userinput;
+} # prompt
 # --------------------------------------------------------------------------- #
 sub menu_zero {
    my $self        = shift;
@@ -190,9 +284,67 @@ sub menu_zero {
    } # Net::BBS::Nyxa::PRE / while connected
    
    return;
-}
+} # menu_zero
 
 # --------------------------------------------------------------------------- #
+
+sub menu_login {
+   my $self = shift;
+   my %user_conf   = %{ +shift };
+   my $tid         = shift;
+   my $sock        = $self->{threads}->{ $tid }->{sock};
+   my $thread      = $self->{threads}->{ $tid }->{thread};
+   # my %user_conf   = %{ $self->{threads}->{ $tid }->{user_conf} };
+   my %ServerParms = %{ $self->{ServerParms} };
+   my $user_data   = undef;
+   
+   $self->sendbbs(\%user_conf, Dumper([\%user_conf])."\r\n");
+   
+   my $username = $self->prompt(\%user_conf, "username: ", {charlim=>24});
+   my $password = $self->prompt(\%user_conf, "password: ", {charlim=>24,noecho=>1});
+   
+   return if $username !~ m/^[a-zA-Z0-9]{1,32}$/;
+   return if $password !~ m/^[a-zA-Z0-9]{1,32}$/;
+   
+   my $userfile = $self->getconf("user/$username");
+   
+   if ( $userfile ) {
+      if ( $userfile->{pass} eq $password ) {
+         $self->sendbbs(\%user_conf, "Welcome!\r\n");
+         UFK: foreach my $key ( keys %{$userfile} ) {
+            next UFK if $key =~ m/^(ip|port|PETSCII|tid)$/;
+            $user_conf{$key} = $userfile->{$key};
+         }
+         return \%user_conf;
+      }
+   }
+   
+   $self->sendbbs(\%user_conf, "Failed to auth.\r\n");
+   
+   $sock->close() if $ServerParms{authfaildie};
+      
+   return \%user_conf;
+} # menu_login
+
+sub menu_stats {
+   my $self      = shift;
+   my %user_conf = %{ +shift };
+   my $tid = $user_conf{tid};
+   $self->sendbbs(\%user_conf, "\r\n");
+   $user_conf{user}     //= "Guest - $tid";
+   $user_conf{USERSTAT} ||= "-" x 16;
+   UCKey: foreach my $key ("USERSTAT", "user", "pass", "ip", "port") {
+      my $val   = $user_conf{$key};
+      $self->sendbbs(\%user_conf, "[ ".sprintf("%-8s", $key)." ] $val\r\n");
+   }
+   UCKey: foreach my $key (sort keys %user_conf) {
+      next UCKey if $key =~ /^(sock|user|pass|ip|port|USERSTAT)/;
+      my $val   = $user_conf{$key};
+      $self->sendbbs(\%user_conf, "[ ".sprintf("%-8s", $key)." ] $val\r\n");
+   }
+   $self->sendbbs(\%user_conf, "\r\n");
+   $self->skipsplash;
+} # menu_stats
 # --------------------------------------------------------------------------- #
 sub menu_main {
    my $self = shift;
@@ -236,7 +388,7 @@ sub menu_main {
          # [debug]
          # ----------------------------- #
          if ( $user_data =~ /^(debug)[\r\n]*$/i ) {
-            $self->debug(Dumper([$self]),"dump");
+            $self->debug("dump",Dumper([$self]));
             $self->sendbbs(\%user_conf, "Running DEBUG dump");
             $self->skipsplash;
          }
@@ -262,9 +414,7 @@ sub menu_main {
          # [l]ogin
          # ----------------------------- #
          if ( $user_data =~ /^(l|login)[\r\n]*$/i ) {
-            my $msg = "[l]ogin wip\r\n";
-            $self->sendbbs(\%user_conf, $msg);
-            $self->skipsplash;
+            %user_conf = %{ $self->menu_login(\%user_conf, $tid) };
          }
 
          # ----------------------------- #
@@ -280,21 +430,24 @@ sub menu_main {
          # [s]tats 
          # ----------------------------- #
          if ( $user_data =~ /^(s|stats)[\r\n]*$/i ) {
-            $self->sendbbs(\%user_conf, "\r\n");
-            $user_conf{user}     ||= "Guest";
-            $user_conf{USERSTAT} ||= "-" x 16;
-            UCKey: foreach my $key ("USERSTAT", "user", "pass", "ip", "port") {
-               my $val   = $user_conf{$key};
-               $self->sendbbs(\%user_conf, "[ ".sprintf("%-8s", $key)." ] $val\r\n");
-            }
-            UCKey: foreach my $key (sort keys %user_conf) {
-               next UCKey if $key =~ /^(sock|user|pass|ip|port|USERSTAT)/;
-               my $val   = $user_conf{$key};
-               $self->sendbbs(\%user_conf, "[ ".sprintf("%-8s", $key)." ] $val\r\n");
-            }
-            $self->sendbbs(\%user_conf, "\r\n");
-            $self->skipsplash;
-         } # stats
+            $self->menu_stats(\%user_conf);
+         }
+         # if ( $user_data =~ /^(s|stats)[\r\n]*$/i ) {
+            # $self->sendbbs(\%user_conf, "\r\n");
+            # $user_conf{user}     //= "Guest - $tid";
+            # $user_conf{USERSTAT} ||= "-" x 16;
+            # UCKey: foreach my $key ("USERSTAT", "user", "pass", "ip", "port") {
+               # my $val   = $user_conf{$key};
+               # $self->sendbbs(\%user_conf, "[ ".sprintf("%-8s", $key)." ] $val\r\n");
+            # }
+            # UCKey: foreach my $key (sort keys %user_conf) {
+               # next UCKey if $key =~ /^(sock|user|pass|ip|port|USERSTAT)/;
+               # my $val   = $user_conf{$key};
+               # $self->sendbbs(\%user_conf, "[ ".sprintf("%-8s", $key)." ] $val\r\n");
+            # }
+            # $self->sendbbs(\%user_conf, "\r\n");
+            # $self->skipsplash;
+         # } # stats
 
          # ----------------------------- #
          # REPRINT MAIN MENU
@@ -313,6 +466,9 @@ sub menu_main {
       } # Net::BBS::Nyxa::MAIN / while connected 
       # --------------------------------------------------------------------------- #
       return;
-}
+} # menu_main
+
+         
+
 
 1;
