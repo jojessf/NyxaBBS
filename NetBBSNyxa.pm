@@ -288,17 +288,84 @@ sub menu_zero {
 
 # --------------------------------------------------------------------------- #
 
+sub menu_register {
+   my $self = shift;
+   my %user_conf   = %{ +shift };
+   my $tid         = shift;
+   my $sock        = $self->{threads}->{ $tid }->{sock};
+   my $thread      = $self->{threads}->{ $tid }->{thread};
+   my %ServerParms = %{ $self->{ServerParms} };
+   my $user_data   = undef;
+   
+   $self->sendbbs(\%user_conf, "OwO * REGISTRATION TIME * OwO\r\n");
+   $self->sendbbs(\%user_conf, "Who are you tho?\r\n"),
+   
+   my $username = $self->prompt(\%user_conf, "username     : ", {charlim=>24});
+   if ( $self->getconf("user/$username") ) {
+      $self->sendbbs(\%user_conf, "Invalid user: ".$username."\r\n");
+      return \%user_conf;
+   }
+   
+   my $password = $self->prompt(\%user_conf, "password     : ", {charlim=>24,noecho=>1});
+   if ( length($password) < 4 ) {
+      $self->sendbbs(\%user_conf, "Invalid password, maybe too short?  Try again, please.  QwQ\r\n");
+      return \%user_conf;
+   }
+   
+   my $pass2    = $self->prompt(\%user_conf, "confirm pass : ", {charlim=>24,noecho=>1});
+   if ( $password ne $pass2 ) {
+      $self->sendbbs(\%user_conf, "Password mismatch\r\n");
+      return \%user_conf;
+   }
+   
+   $self->sendbbs(\%user_conf, "Optional stuff:\r\n");
+   my $user_file = {
+         "user"      => $username,
+         "pass"      => $password,
+         "computer"  => $self->prompt(\%user_conf, "computer     : ", {charlim=>32}),
+         "fullname"  => $self->prompt(\%user_conf, "full name    : ", {charlim=>32}),
+         "email"     => $self->prompt(\%user_conf, " email       : ", {charlim=>48}),
+         "phone"     => $self->prompt(\%user_conf, " phone       : ", {charlim=>48}),
+         "add1"      => $self->prompt(\%user_conf, "address 1    : ", {charlim=>48}),
+         "add2"      => $self->prompt(\%user_conf, "address 2    : ", {charlim=>48}),
+         "city"      => $self->prompt(\%user_conf, " city        : ", {charlim=>48}),
+         "state"     => $self->prompt(\%user_conf, " state       : ", {charlim=>32}),
+         "zip"       => $self->prompt(\%user_conf, " postcode    : ", {charlim=>12}),
+         "country"   => $self->prompt(\%user_conf, " country     : ", {charlim=>48}),
+   };
+   $self->sendbbs(\%user_conf, "Confirm:" . Dumper([$user_file]) . "\r\n");
+   
+   if ( $self->getconf("user/".$user_file->{user}) ) {
+      $self->sendbbs(\%user_conf, "Invalid user: ".$user_file->{user}."\r\n");
+      return \%user_conf;
+   }
+   
+   foreach my $field ( "user", "pass", "computer","fullname"," email", "phone", "add1", "add2", "city", "state", "zip", "country" ) {
+      $user_file->{$field} = $user_file->{$field};
+      $self->sendbbs(\%user_conf, " $field :".$user_file->{$field}."\r\n");
+   }
+   my $okay = $self->prompt(\%user_conf, "Everything lookin' good? ([Y|N]) : ", {charlim=>4});
+
+   if ( $okay =~ /y|yes|ja|hai/i ) {
+      $self->sendbbs(\%user_conf, "Saving user: ".$user_file->{user}."\r\n");
+      $self->saveconf("user/$username", $user_file);
+   } else {
+      $self->sendbbs(\%user_conf, "Aborting registration.\r\n");
+   }
+
+   return \%user_conf;
+} # menu_register
+
+
+
 sub menu_login {
    my $self = shift;
    my %user_conf   = %{ +shift };
    my $tid         = shift;
    my $sock        = $self->{threads}->{ $tid }->{sock};
    my $thread      = $self->{threads}->{ $tid }->{thread};
-   # my %user_conf   = %{ $self->{threads}->{ $tid }->{user_conf} };
    my %ServerParms = %{ $self->{ServerParms} };
    my $user_data   = undef;
-   
-   $self->sendbbs(\%user_conf, Dumper([\%user_conf])."\r\n");
    
    my $username = $self->prompt(\%user_conf, "username: ", {charlim=>24});
    my $password = $self->prompt(\%user_conf, "password: ", {charlim=>24,noecho=>1});
@@ -308,20 +375,16 @@ sub menu_login {
    
    my $userfile = $self->getconf("user/$username");
    
-   if ( $userfile ) {
-      if ( $userfile->{pass} eq $password ) {
-         $self->sendbbs(\%user_conf, "Welcome!\r\n");
-         UFK: foreach my $key ( keys %{$userfile} ) {
-            next UFK if $key =~ m/^(ip|port|PETSCII|tid)$/;
-            $user_conf{$key} = $userfile->{$key};
-         }
-         return \%user_conf;
+   if ( ( $userfile ) && ( $userfile->{pass} eq $password ) ) {
+      $self->sendbbs(\%user_conf, "Welcome, $username! :3c\r\n");
+      UFK: foreach my $key ( keys %{$userfile} ) {
+         next UFK if $key =~ m/^(ip|port|PETSCII|tid)$/;
+         $user_conf{$key} = $userfile->{$key};
       }
+   } else {
+      $self->sendbbs(\%user_conf, "Failed to auth. =<\r\n");
+      $sock->close() if $ServerParms{authfaildie};
    }
-   
-   $self->sendbbs(\%user_conf, "Failed to auth.\r\n");
-   
-   $sock->close() if $ServerParms{authfaildie};
       
    return \%user_conf;
 } # menu_login
@@ -361,7 +424,7 @@ sub menu_main {
       } else {
          $self->sendbbs(\%user_conf, "NO PETSCII\r\n");
       }
-      $self->sendbbs(\%user_conf, $ServerParms{bbsmenumsg});
+      $self->sendbbs(\%user_conf, $ServerParms{menumsg_main});
       # --------------------------------------------------------------------------- #
       # /\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ #
       # --------------------------------------------------------------------------- #
@@ -421,9 +484,7 @@ sub menu_main {
          # [r]egister
          # ----------------------------- #
          if ( $user_data =~ /^(r|register)[\r\n]*$/i ) {
-            my $msg = "[r]egistration wip\r\n";
-            $self->sendbbs(\%user_conf, $msg);
-            $self->skipsplash;
+            %user_conf = %{ $self->menu_register(\%user_conf, $tid) };
          }
          
          # ----------------------------- #
@@ -460,7 +521,7 @@ sub menu_main {
                   foreach my $pc (split/\r/, $ServerParms{PETSCIISplash00}) {$sock->send($pc."\r");}
                }
             }
-            $self->sendbbs(\%user_conf, $ServerParms{bbsmenumsg});
+            $self->sendbbs(\%user_conf, $ServerParms{menumsg_main});
          }
          
       } # Net::BBS::Nyxa::MAIN / while connected 
