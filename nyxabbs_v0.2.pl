@@ -22,13 +22,20 @@ my %ServerParms = (
     logdir            => 'log',
     confdir           => 'conf',
     PETSCIISplash00FI => "nyxabbs.splash",
-    menumsg_main => "\r\n\r\n\@PCX{CYAN}~\@PCX{LIGHTBLUE}UwU\@PCX{CYAN}~\@PCX{PURPLE}".
-                  "NyxaBBS\@PCX{LIGHTGRAY}:\@PCX{LIGHTGREEN}MainMenu".
+    menumsg_land => "\r\n\r\n\@PCX{CYAN}~\@PCX{LIGHTBLUE}UwU\@PCX{CYAN}~\@PCX{PURPLE}".
+                  "NyxaBBS\@PCX{LIGHTGRAY}:\@PCX{LIGHTGREEN}LandingMenu".
                   "\@PCX{CYAN}~\@PCX{LIGHTGRAY}\@PCX{LIGHTBLUE}UwU\@PCX{CYAN}~\@PCX{LIGHTGRAY} \r\n\r\n" . 
                   "[\@PCX{RED}q\@PCX{LIGHTGRAY}]uit ".
                   "[\@PCX{CYAN}l\@PCX{LIGHTGRAY}]ogin ".
                   "[\@PCX{GREEN}r\@PCX{LIGHTGRAY}]egister ".
-                  "[\@PCX{PURPLE}s\@PCX{LIGHTGRAY}]tats\r\n",  # $ServerParms{bbsmenumsg}
+                  "[\@PCX{PURPLE}s\@PCX{LIGHTGRAY}]tats\r\n",
+    menumsg_bbs => "\r\n\r\n\@PCX{CYAN}~\@PCX{LIGHTBLUE}UwU\@PCX{CYAN}~\@PCX{PURPLE}".
+                  "NyxaBBS\@PCX{LIGHTGRAY}:\@PCX{LIGHTGREEN}BBSMenu".
+                  "\@PCX{CYAN}~\@PCX{LIGHTGRAY}\@PCX{LIGHTBLUE}UwU\@PCX{CYAN}~\@PCX{LIGHTGRAY} \r\n\r\n" . 
+                  "[\@PCX{GREEN}r\@PCX{LIGHTGRAY}]ead ".
+                  "[\@PCX{CYAN}p\@PCX{LIGHTGRAY}]ost ".
+                  "[\@PCX{PURPLE}s\@PCX{LIGHTGRAY}]tats ".
+                  "[\@PCX{RED}q\@PCX{LIGHTGRAY}]uit \r\n",
 );
 # --------------------------------------------------------------------------- #
 if ( -e $ServerParms{PETSCIISplash00FI} ) {
