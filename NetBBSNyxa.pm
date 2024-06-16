@@ -11,6 +11,13 @@ use Data::Dumper;
 use Text::Convert::PETSCII qw/:all/; # https://metacpan.org/pod/Text::Convert::PETSCII
 use File::Path qw(make_path);
 # --------------------------------------------------------------------------- #
+# TODO: 
+#  * limit concurrent connections 
+#  * limit connections per IP 
+#  * post/reader
+#  * dates
+#  * add server info to stats:  user/post counts, last login
+# --------------------------------------------------------------------------- #
 # /\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ #
 # --------------------------------------------------------------------------- #
 sub new {
@@ -29,6 +36,7 @@ sub new {
          'pass' => undef,
          'port' => undef,
          'ip'   => undef,
+         'loggedin' => 0,
          'PETSCII' => 0, # $user_conf{PETSCII}
       },
    };
@@ -131,6 +139,22 @@ sub saveconf {
    select(undef,undef,undef,0.05);
    return 1;
 } # saveconf
+
+sub post_put {
+   my $self      = shift;
+   my $user_conf = shift;
+   
+   
+   return 1;
+}
+
+sub post_get {
+   my $self      = shift;
+   my $user_conf = shift;
+   
+   
+   return 1;
+}
 
 
 sub sleep {
@@ -279,7 +303,7 @@ sub menu_zero {
          $user_conf->{PETSCII} = 0;
       }   
       $self->sendbbs($user_conf, $res . "\r\n");
-      $self->menu_main($tid);
+      $self->menu_main($user_conf, $tid);
       last ZEROCON;
    } # Net::BBS::Nyxa::PRE / while connected
    
@@ -340,13 +364,13 @@ sub menu_register {
       return \%user_conf;
    }
    
-   foreach my $field ( "user", "pass", "computer","fullname"," email", "phone", "add1", "add2", "city", "state", "zip", "country" ) {
+   foreach my $field ( "user", "pass", "computer","fullname","email", "phone", "add1", "add2", "city", "state", "zip", "country" ) {
       $user_file->{$field} = $user_file->{$field};
       $self->sendbbs(\%user_conf, " $field :".$user_file->{$field}."\r\n");
    }
    my $okay = $self->prompt(\%user_conf, "Everything lookin' good? ([Y|N]) : ", {charlim=>4});
 
-   if ( $okay =~ /y|yes|ja|hai/i ) {
+   if ( $okay =~ /y|yes|ja|hai|si/i ) {
       $self->sendbbs(\%user_conf, "Saving user: ".$user_file->{user}."\r\n");
       $self->saveconf("user/$username", $user_file);
    } else {
@@ -355,8 +379,6 @@ sub menu_register {
 
    return \%user_conf;
 } # menu_register
-
-
 
 sub menu_login {
    my $self = shift;
@@ -377,9 +399,11 @@ sub menu_login {
    
    if ( ( $userfile ) && ( $userfile->{pass} eq $password ) ) {
       $self->sendbbs(\%user_conf, "Welcome, $username! :3c\r\n");
+      $user_conf{loggedin} = 1;
       UFK: foreach my $key ( keys %{$userfile} ) {
          next UFK if $key =~ m/^(ip|port|PETSCII|tid)$/;
          $user_conf{$key} = $userfile->{$key};
+         $self->menu_bbs(\%user_conf, $tid);
       }
    } else {
       $self->sendbbs(\%user_conf, "Failed to auth. =<\r\n");
@@ -396,25 +420,31 @@ sub menu_stats {
    $self->sendbbs(\%user_conf, "\r\n");
    $user_conf{user}     //= "Guest - $tid";
    $user_conf{USERSTAT} ||= "-" x 16;
-   UCKey: foreach my $key ("USERSTAT", "user", "pass", "ip", "port") {
+   UCKey: foreach my $key ("USERSTAT", "user", "pass", "ip", "port", "loggedin") {
       my $val   = $user_conf{$key};
+      $val =~ s/./*/g if $key =~ /pass/;
       $self->sendbbs(\%user_conf, "[ ".sprintf("%-8s", $key)." ] $val\r\n");
    }
    UCKey: foreach my $key (sort keys %user_conf) {
-      next UCKey if $key =~ /^(sock|user|pass|ip|port|USERSTAT)/;
+      next UCKey if $key =~ /^(sock|user|pass|ip|port|USERSTAT|add[12]|city|computer|country|state|zip|tid|loggedin)$/;
       my $val   = $user_conf{$key};
+      next if (( ! defined($val) ) || ( $val eq '' ))  ;
       $self->sendbbs(\%user_conf, "[ ".sprintf("%-8s", $key)." ] $val\r\n");
    }
    $self->sendbbs(\%user_conf, "\r\n");
    $self->skipsplash;
 } # menu_stats
 # --------------------------------------------------------------------------- #
+# /\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ #
+# --------------------------------------------------------------------------- #
+# /\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ #
+# --------------------------------------------------------------------------- #
 sub menu_main {
    my $self = shift;
+   my %user_conf   = %{ +shift };
    my $tid         = shift;
    my $sock        = $self->{threads}->{ $tid }->{sock};
    my $thread      = $self->{threads}->{ $tid }->{thread};
-   my %user_conf   = %{ $self->{threads}->{ $tid }->{user_conf} };
    my %ServerParms = %{ $self->{ServerParms} };
    my $user_data   = undef;
 
@@ -424,11 +454,91 @@ sub menu_main {
       } else {
          $self->sendbbs(\%user_conf, "NO PETSCII\r\n");
       }
-      $self->sendbbs(\%user_conf, $ServerParms{menumsg_main});
+      $self->sendbbs(\%user_conf, $ServerParms{menumsg_land});
+      # --------------------------------------------------------------------------- #
+      # Net::BBS::Nyxa::MAIN                                                        #
       # --------------------------------------------------------------------------- #
       # /\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ #
       # --------------------------------------------------------------------------- #
-      # Net::BBS::Nyxa::MAIN 
+      MMCON: while ($sock->connected()) {
+         $sock->recv( $user_data,  1024 );
+
+         # ----------------------------- #
+         # [q]uit 
+         # ----------------------------- #
+         if ( $user_data =~ /^(q|quit|exit)[\r\n]*$/i ) {
+            my $msg = "Disconnecting ".$user_conf{ip}." : ".$user_conf{port}."\r\n";
+            print $msg if $ServerParms{verbose} >= 1;
+            $self->sendbbs(\%user_conf, $msg);
+            $sock->close();
+            $self->skipsplash;
+            last MMCON;
+         } # quit 
+
+         # ----------------------------- #
+         # [l]ogin
+         # ----------------------------- #
+         if ( $user_data =~ /^(l|login)[\r\n]*$/i ) {
+            %user_conf = %{ $self->menu_login(\%user_conf, $tid) };
+         }
+
+         # ----------------------------- #
+         # [r]egister
+         # ----------------------------- #
+         if ( $user_data =~ /^(r|register)[\r\n]*$/i ) {
+            %user_conf = %{ $self->menu_register(\%user_conf, $tid) };
+         }
+         
+         # ----------------------------- #
+         # [s]tats 
+         # ----------------------------- #
+         if ( $user_data =~ /^(s|stats)[\r\n]*$/i ) {
+            $self->menu_stats(\%user_conf);
+         }
+
+         # ----------------------------- #
+         # REPRINT MAIN MENU
+         # ----------------------------- #
+         if ($user_data) {
+            if ( $user_conf{PETSCII} ) {
+               if ( $self->{skipsplash} ) {
+                  $self->{skipsplash} = 0;
+               } else {
+                  foreach my $pc (split/\r/, $ServerParms{PETSCIISplash00}) {$sock->send($pc."\r");}
+               }
+            }
+            $self->sendbbs(\%user_conf, $ServerParms{menumsg_land});
+         }
+         
+      } # Net::BBS::Nyxa::MAIN / while connected 
+      # --------------------------------------------------------------------------- #
+      return;
+} # menu_main
+
+# --------------------------------------------------------------------------- #
+# /\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ #
+# --------------------------------------------------------------------------- #
+# /\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ #
+# --------------------------------------------------------------------------- #
+
+sub menu_bbs {
+   my $self = shift;
+   my %user_conf   = %{+shift};
+   my $tid         = shift;
+   my $sock        = $self->{threads}->{ $tid }->{sock};
+   my $thread      = $self->{threads}->{ $tid }->{thread};
+   my %ServerParms = %{ $self->{ServerParms} };
+   my $user_data   = undef;
+
+      # --------------------------------------------------------------------------- #
+      if ( $user_conf{PETSCII} ) {
+         foreach my $pc (split/\r/, $ServerParms{PETSCIISplash00}) {$sock->send($pc."\r");}
+      } else {
+         $self->sendbbs(\%user_conf, "NO PETSCII\r\n");
+      }
+      $self->sendbbs(\%user_conf, $ServerParms{menumsg_bbs});
+      # --------------------------------------------------------------------------- #
+      # Net::BBS::Nyxa::BBS                                                         #
       # --------------------------------------------------------------------------- #
       # /\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ #
       # --------------------------------------------------------------------------- #
@@ -455,7 +565,6 @@ sub menu_main {
             $self->sendbbs(\%user_conf, "Running DEBUG dump");
             $self->skipsplash;
          }
-         
 
          # ----------------------------- #
          # [c]olortest
@@ -474,17 +583,17 @@ sub menu_main {
          }
 
          # ----------------------------- #
-         # [l]ogin
+         # [r]ead
          # ----------------------------- #
-         if ( $user_data =~ /^(l|login)[\r\n]*$/i ) {
-            %user_conf = %{ $self->menu_login(\%user_conf, $tid) };
+         if ( $user_data =~ /^(r|read)[\r\n]*$/i ) {
+            # %user_conf = %{ $self->menu_read(\%user_conf, $tid) };
          }
 
          # ----------------------------- #
-         # [r]egister
+         # [p]ost
          # ----------------------------- #
-         if ( $user_data =~ /^(r|register)[\r\n]*$/i ) {
-            %user_conf = %{ $self->menu_register(\%user_conf, $tid) };
+         if ( $user_data =~ /^(p|post)[\r\n]*$/i ) {
+            # %user_conf = %{ $self->menu_post(\%user_conf, $tid) };
          }
          
          # ----------------------------- #
@@ -493,22 +602,6 @@ sub menu_main {
          if ( $user_data =~ /^(s|stats)[\r\n]*$/i ) {
             $self->menu_stats(\%user_conf);
          }
-         # if ( $user_data =~ /^(s|stats)[\r\n]*$/i ) {
-            # $self->sendbbs(\%user_conf, "\r\n");
-            # $user_conf{user}     //= "Guest - $tid";
-            # $user_conf{USERSTAT} ||= "-" x 16;
-            # UCKey: foreach my $key ("USERSTAT", "user", "pass", "ip", "port") {
-               # my $val   = $user_conf{$key};
-               # $self->sendbbs(\%user_conf, "[ ".sprintf("%-8s", $key)." ] $val\r\n");
-            # }
-            # UCKey: foreach my $key (sort keys %user_conf) {
-               # next UCKey if $key =~ /^(sock|user|pass|ip|port|USERSTAT)/;
-               # my $val   = $user_conf{$key};
-               # $self->sendbbs(\%user_conf, "[ ".sprintf("%-8s", $key)." ] $val\r\n");
-            # }
-            # $self->sendbbs(\%user_conf, "\r\n");
-            # $self->skipsplash;
-         # } # stats
 
          # ----------------------------- #
          # REPRINT MAIN MENU
@@ -521,15 +614,13 @@ sub menu_main {
                   foreach my $pc (split/\r/, $ServerParms{PETSCIISplash00}) {$sock->send($pc."\r");}
                }
             }
-            $self->sendbbs(\%user_conf, $ServerParms{menumsg_main});
+            $self->sendbbs(\%user_conf, $ServerParms{menumsg_bbs});
          }
          
       } # Net::BBS::Nyxa::MAIN / while connected 
       # --------------------------------------------------------------------------- #
       return;
-} # menu_main
-
-         
+} # menu_bbs
 
 
 1;
