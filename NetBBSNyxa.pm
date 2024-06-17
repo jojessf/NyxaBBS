@@ -35,11 +35,20 @@ sub new {
    };
    bless($self, $class);
 
+   # init dirs 
    mkdir $self->{ServerParms}->{confdir} if ! -d $self->{ServerParms}->{confdir};
    die "$class FATAL no confdir ".$self->{ServerParms}->{confdir}." \@"   . __LINE__ if ! -d $self->{ServerParms}->{confdir};
    
    mkdir $self->{ServerParms}->{logdir} if ! -d $self->{ServerParms}->{logdir};
    die "$class FATAL no logdir  ".$self->{ServerParms}->{logdir}." \@" . __LINE__ if ! -d $self->{ServerParms}->{logdir};
+         
+   # init vars 
+   
+   if ( $self->getconf("bbs/postq") == 0 ) {
+      $self->saveconf("bbs/postq", {postq=>0});
+   }
+   
+   $self->{bbs}->{postq} = $self->getconf("bbs/postq")->{postq};
    
    return $self;
 };
@@ -257,6 +266,9 @@ sub prompt {
    PromptCharIn: until ( $user_data =~ m/[\r\n]/ ) {
       $sock->recv( $user_data, 8 );
       
+      if ( ($user_conf->{PETSCII}) && ( $prompt_opt->{noecho} == 2) ) {
+         $self->sendbbs($user_conf, "*");
+      }
       if ( ($user_conf->{PETSCII}) && ( ! $prompt_opt->{noecho} ) ) {
          $self->sendbbs($user_conf, $user_data);
       }
@@ -403,9 +415,9 @@ sub menu_login {
       UFK: foreach my $key ( keys %{$userfile} ) {
          next UFK if $key =~ m/^(ip|port|PETSCII|tid)$/;
          $user_conf{$key} = $userfile->{$key};
-         %user_conf = %{ $self->menu_bbs(\%user_conf, $tid) };
-         return \%user_conf if $user_conf{quit};
       }
+      %user_conf = %{ $self->menu_bbs(\%user_conf, $tid) };
+      return \%user_conf if $user_conf{quit};
    } else {
       $self->sendbbs(\%user_conf, "Failed to auth. =<\r\n");
       $sock->close() if $ServerParms{authfaildie};
@@ -596,7 +608,7 @@ sub menu_bbs {
          # [p]ost
          # ----------------------------- #
          if ( $user_data =~ /^(p|post)[\r\n]*$/i ) {
-            # %user_conf = %{ $self->menu_post(\%user_conf, $tid) };
+            %user_conf = %{ $self->menu_post(\%user_conf, $tid) };
          }
          
          # ----------------------------- #
@@ -624,6 +636,76 @@ sub menu_bbs {
       # --------------------------------------------------------------------------- #
       return \%user_conf
 } # menu_bbs
+
+# --------------------------------------------------------------------------- #
+# /\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ #
+# --------------------------------------------------------------------------- #
+# /\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ #
+# --------------------------------------------------------------------------- #
+
+sub menu_post {
+   my $self = shift;
+   my %user_conf   = %{+shift};
+   my $tid         = $user_conf{tid};
+   my $sock        = $user_conf{sock};
+   my %ServerParms = %{ $self->{ServerParms} };
+   my $user_data   = undef;
+   
+   $self->{bbs}->{postq}++;
+   $self->saveconf("bbs/postq", {postq=>$self->{bbs}->{postq}});
+   
+   $self->debug("poststart", Dumper([\%user_conf]));
+   
+   $self->sendbbs(\%user_conf, "\@PCX{CYAN}What's on your mind, cutie? :3\@PCX{LIGHTGRAY}\r\n");
+   
+   if ( $user_conf{PETSCII} ) {
+      $self->sendbbs(\%user_conf, "\@PCX{RED}£q\@PCX{LIGHTGRAY} to bail; \@PCX{GREEN}£s\@PCX{LIGHTGRAY} to save; \@PCX{ORANGE}£d\@PCX{LIGHTGRAY} to draft [wip]\r\n");
+   } else {
+      $self->sendbbs(\%user_conf, "\@PCX{RED}/q\@PCX{LIGHTGRAY} to bail; \@PCX{GREEN}/s\@PCX{LIGHTGRAY} to save; \@PCX{ORANGE}/d\@PCX{LIGHTGRAY} to draft [wip]\r\n");
+   }
+   
+   my $post    = "";
+   my $postop = undef;
+   PCON: while ($sock->connected()) {
+      $sock->recv( $user_data,  1024 );
+      
+      if ( $user_conf{PETSCII} ) {
+         $self->sendbbs(\%user_conf, $user_data);
+      }
+      
+      $post .= $user_data;
+      if ( $post =~ s/(.*)\\s.{,5}$/$1/i ) { $postop = "s"; last PCON };
+   }
+   
+   if ( $postop eq 's' ) {
+      $post =~ s/\s*(\r\n|\r|\n){3,}/\r\n\r\n/g; # limit to two consecutive line feeds
+      
+      $self->sendbbs(\%user_conf, "\r\n\r\n");
+      $self->sendbbs(\%user_conf, "okay, so:\r\n");
+      $self->sendbbs(\%user_conf, "<<<$post>>>");
+
+      my $postq = $self->{bbs}->{postq};
+      my $date  = localtime;
+      my $fi    = sprintf("%07d", $postq.".msg");
+      $self->saveconf("msg/$fi", {
+         msg  => $post,
+         user => $user_conf{user},
+         date => $date,
+      });
+
+   }
+   
+   $self->sendbbs(\%user_conf, "\r\n\r\n");
+   
+   $self->debug("postend", Dumper([\%user_conf, $post]));
+   return \%user_conf;
+} # menu_post
+
+# --------------------------------------------------------------------------- #
+# /\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ #
+# --------------------------------------------------------------------------- #
+# /\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ #
+# --------------------------------------------------------------------------- #
 
 
 1;
