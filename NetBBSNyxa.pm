@@ -11,13 +11,6 @@ use Data::Dumper;
 use Text::Convert::PETSCII qw/:all/; # https://metacpan.org/pod/Text::Convert::PETSCII
 use File::Path qw(make_path);
 # --------------------------------------------------------------------------- #
-# TODO: 
-#  * limit concurrent connections 
-#  * limit connections per IP 
-#  * post/reader
-#  * dates
-#  * add server info to stats:  user/post counts, last login
-# --------------------------------------------------------------------------- #
 # /\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ #
 # --------------------------------------------------------------------------- #
 sub new {
@@ -49,6 +42,13 @@ sub new {
    die "$class FATAL no logdir  ".$self->{ServerParms}->{logdir}." \@" . __LINE__ if ! -d $self->{ServerParms}->{logdir};
    
    return $self;
+};
+
+sub quit {
+   my $self = shift;
+   my $user_conf = shift;
+      $user_conf->{quit} = 1;
+   return;
 };
 
 
@@ -140,7 +140,7 @@ sub saveconf {
    return 1;
 } # saveconf
 
-sub post_put {
+sub msg_put {
    my $self      = shift;
    my $user_conf = shift;
    
@@ -148,14 +148,13 @@ sub post_put {
    return 1;
 }
 
-sub post_get {
+sub msg_get {
    my $self      = shift;
    my $user_conf = shift;
    
    
    return 1;
 }
-
 
 sub sleep {
    my $self  = shift;
@@ -231,6 +230,7 @@ sub listen {
          $self->{threads}->{ $pid }->{user_conf}->{tid}  = $pid;
          
          $self->menu_zero($pid);
+         return; # we never wanna recover from here uwu
       }
 
       $self->sleep(0.05); # sleep for 50ms between new sockets
@@ -392,8 +392,8 @@ sub menu_login {
    my $username = $self->prompt(\%user_conf, "username: ", {charlim=>24});
    my $password = $self->prompt(\%user_conf, "password: ", {charlim=>24,noecho=>1});
    
-   return if $username !~ m/^[a-zA-Z0-9]{1,32}$/;
-   return if $password !~ m/^[a-zA-Z0-9]{1,32}$/;
+   return \%user_conf if $username !~ m/^[a-zA-Z0-9]{1,32}$/;
+   return \%user_conf if $password !~ m/^[a-zA-Z0-9]{1,32}$/;
    
    my $userfile = $self->getconf("user/$username");
    
@@ -403,7 +403,8 @@ sub menu_login {
       UFK: foreach my $key ( keys %{$userfile} ) {
          next UFK if $key =~ m/^(ip|port|PETSCII|tid)$/;
          $user_conf{$key} = $userfile->{$key};
-         $self->menu_bbs(\%user_conf, $tid);
+         %user_conf = %{ $self->menu_bbs(\%user_conf, $tid) };
+         return \%user_conf if $user_conf{quit};
       }
    } else {
       $self->sendbbs(\%user_conf, "Failed to auth. =<\r\n");
@@ -471,8 +472,8 @@ sub menu_main {
             print $msg if $ServerParms{verbose} >= 1;
             $self->sendbbs(\%user_conf, $msg);
             $sock->close();
-            $self->skipsplash;
-            last MMCON;
+            $self->quit(\%user_conf);
+            return \%user_conf;
          } # quit 
 
          # ----------------------------- #
@@ -480,6 +481,7 @@ sub menu_main {
          # ----------------------------- #
          if ( $user_data =~ /^(l|login)[\r\n]*$/i ) {
             %user_conf = %{ $self->menu_login(\%user_conf, $tid) };
+            return \%user_conf if $user_conf{quit};
          }
 
          # ----------------------------- #
@@ -512,7 +514,7 @@ sub menu_main {
          
       } # Net::BBS::Nyxa::MAIN / while connected 
       # --------------------------------------------------------------------------- #
-      return;
+      return \%user_conf;
 } # menu_main
 
 # --------------------------------------------------------------------------- #
@@ -524,12 +526,13 @@ sub menu_main {
 sub menu_bbs {
    my $self = shift;
    my %user_conf   = %{+shift};
-   my $tid         = shift;
-   my $sock        = $self->{threads}->{ $tid }->{sock};
-   my $thread      = $self->{threads}->{ $tid }->{thread};
+   my $tid         = $user_conf{tid};
+   my $sock        = $user_conf{sock};
    my %ServerParms = %{ $self->{ServerParms} };
    my $user_data   = undef;
-
+      
+      $self->debug("sessionstart", Dumper([\%user_conf]));
+      
       # --------------------------------------------------------------------------- #
       if ( $user_conf{PETSCII} ) {
          foreach my $pc (split/\r/, $ServerParms{PETSCIISplash00}) {$sock->send($pc."\r");}
@@ -553,7 +556,7 @@ sub menu_bbs {
             print $msg if $ServerParms{verbose} >= 1;
             $self->sendbbs(\%user_conf, $msg);
             $sock->close();
-            $self->skipsplash;
+            $self->quit(\%user_conf);
             last MMCON;
          } # quit 
 
@@ -619,7 +622,7 @@ sub menu_bbs {
          
       } # Net::BBS::Nyxa::MAIN / while connected 
       # --------------------------------------------------------------------------- #
-      return;
+      return \%user_conf
 } # menu_bbs
 
 
