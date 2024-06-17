@@ -48,7 +48,24 @@ sub new {
       $self->saveconf("bbs/postq", {postq=>0});
    }
    
-   $self->{bbs}->{postq} = $self->getconf("bbs/postq")->{postq};
+   # BBS Stats =====================================================
+   $self->{bbs}->{BBSTAT} = "-" x 16;
+   my $postq = $self->getconf("bbs/postq")->{postq};
+   $self->{bbs}->{postq} = $postq;
+   
+   # lastmsg [date] 
+   if ( $postq > 1 ) {
+      PQCHK: for (my $pq = $postq; $pq>=0; $pq--) {
+         print "~>".$pq . "\n";
+         my $lastmsg = $self->getconf("msg/".$self->postqfile($pq));
+         if ( $lastmsg ne 0 ) {
+            $self->{bbs}->{lastmsg} = $lastmsg->{date};
+            last PQCHK;
+         }
+      }
+   }
+   
+   
    
    return $self;
 };
@@ -78,6 +95,12 @@ sub sendbbs {
    $sock->send($msg);
    # ---------------------- #
    return 1;
+}
+
+sub postqfile {
+   my $self = shift;
+   my $postq = shift;
+   return sprintf("%07d", $postq.".msg");
 }
 
 sub debug {
@@ -444,6 +467,16 @@ sub menu_stats {
       next if (( ! defined($val) ) || ( $val eq '' ))  ;
       $self->sendbbs(\%user_conf, "[ ".sprintf("%-8s", $key)." ] $val\r\n");
    }
+   
+   ServKey: foreach my $key ("BBSTAT", "postq", "lastmsg") {
+      my $val = $self->{bbs}->{$key};
+      my $pkey = $key;
+      next if (( ! defined($val) ) || ( $val eq '' ));
+      $pkey =~ s/postq/msg count/;
+      $self->sendbbs(\%user_conf, "[ ".sprintf("%-8s", $key)." ] $val\r\n");
+   }
+   
+   
    $self->sendbbs(\%user_conf, "\r\n");
    $self->skipsplash;
 } # menu_stats
@@ -659,7 +692,9 @@ sub menu_post {
    $self->sendbbs(\%user_conf, "\@PCX{CYAN}What's on your mind, cutie? :3\@PCX{LIGHTGRAY}\r\n");
    
    if ( $user_conf{PETSCII} ) {
-      $self->sendbbs(\%user_conf, "\@PCX{RED}£q\@PCX{LIGHTGRAY} to bail; \@PCX{GREEN}£s\@PCX{LIGHTGRAY} to save; \@PCX{ORANGE}£d\@PCX{LIGHTGRAY} to draft [wip]\r\n");
+      my $£ = ascii_to_petscii("£");
+      $self->sendbbs(\%user_conf, "\@PCX{RED}".$£."q\@PCX{LIGHTGRAY} to bail; \@PCX{GREEN}".$£".s\@PCX{LIGHTGRAY} to save; \@PCX{ORANGE}".$£."d\@PCX{LIGHTGRAY} to draft [wip]\r\n");
+      # TODO - fix 
    } else {
       $self->sendbbs(\%user_conf, "\@PCX{RED}/q\@PCX{LIGHTGRAY} to bail; \@PCX{GREEN}/s\@PCX{LIGHTGRAY} to save; \@PCX{ORANGE}/d\@PCX{LIGHTGRAY} to draft [wip]\r\n");
    }
@@ -686,12 +721,13 @@ sub menu_post {
 
       my $postq = $self->{bbs}->{postq};
       my $date  = localtime;
-      my $fi    = sprintf("%07d", $postq.".msg");
+      my $fi    = $self->postqfile($postq);
       $self->saveconf("msg/$fi", {
          msg  => $post,
          user => $user_conf{user},
          date => $date,
       });
+      $self->{bbs}->{lastmsg} = $date;
 
    }
    
