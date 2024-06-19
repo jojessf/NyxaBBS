@@ -6,6 +6,8 @@ use strict;
 use IO::Socket::INET;                # https://metacpan.org/pod/IO::Socket::INET
 $SIG{CHLD} = sub { wait; };
 require("./NetBBSNyxa.pm"); 
+require("./NetBBSNyxaChartable.pm"); 
+
 # --------------------------------------------------------------------------- #
 my %ServerParms = (
     # LocalHost         => '127.0.0.1', # restrict to ip/iface
