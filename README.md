@@ -2,6 +2,8 @@
 Vulnerable PETSCII/C64 compatible perl BBS Daemon - just for fun, very wip
 
 # TODO
+* reformat character set 2 stuff for addition to the incomplete Text::Convert::PETSCII
+* cpan-ize
 * merge msg reader
 * lockfile mechanism for get/saveconf
 * msg poster
@@ -14,7 +16,7 @@ Vulnerable PETSCII/C64 compatible perl BBS Daemon - just for fun, very wip
 
 # DEPENDS
 * IO::Socket::INET - https://metacpan.org/pod/IO::Socket::INET
-* Text::Convert::PETSCII - https://metacpan.org/pod/Text::Convert::PETSCII
+* Text::Convert::PETSCII - https://metacpan.org/pod/Text::Convert::PETSCII 
 * JSON - https://metacpan.org/pod/JSON
 
 # AUTHOR
