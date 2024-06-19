@@ -692,8 +692,8 @@ sub menu_post {
    $self->sendbbs(\%user_conf, "\@PCX{CYAN}What's on your mind, cutie? :3\@PCX{LIGHTGRAY}\r\n");
    
    if ( $user_conf{PETSCII} ) {
-      my $£ = ascii_to_petscii("£");
-      $self->sendbbs(\%user_conf, "\@PCX{RED}".$£."q\@PCX{LIGHTGRAY} to bail; \@PCX{GREEN}".$£".s\@PCX{LIGHTGRAY} to save; \@PCX{ORANGE}".$£."d\@PCX{LIGHTGRAY} to draft [wip]\r\n");
+      my $L = "\x5c"; # quid
+      $self->sendbbs(\%user_conf, "\@PCX{RED}" . $L ."q\@PCX{LIGHTGRAY} to bail; \@PCX{GREEN}". $L ."s\@PCX{LIGHTGRAY} to save; \@PCX{ORANGE}". $L ."d\@PCX{LIGHTGRAY} to draft [wip]\r\n");
       # TODO - fix 
    } else {
       $self->sendbbs(\%user_conf, "\@PCX{RED}/q\@PCX{LIGHTGRAY} to bail; \@PCX{GREEN}/s\@PCX{LIGHTGRAY} to save; \@PCX{ORANGE}/d\@PCX{LIGHTGRAY} to draft [wip]\r\n");
