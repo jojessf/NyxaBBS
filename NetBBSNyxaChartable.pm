@@ -70,6 +70,16 @@ our %PETSCiiHex2ASCII = (
    "\x5D" => ']', # shift ;, ]
    "\x5E" => '^', # up arrow 
    "\xDE" => ' ', # shift up arrow  [ actually block, TODO ]
+
+   "\x21" => '!', # shift+1
+   "\x22" => '"', # shift+2
+   "\x23" => '#', # shift+3
+   "\x24" => '$', # shift+4
+   "\x25" => '%', # shift+5
+   "\x26" => '&', # shift+6
+   "\x27" => "'", # shift+7
+   "\x28" => '(', # shift+8
+   "\x29" => ')', # shift+9
    
    # "\x11" => ' ', # UP 
    # "\x1D" => ' ', # LEFT
@@ -83,17 +93,9 @@ our %PETSCiiHex2ASCII = (
    # "\x8A" => ' ', # F4
    # "\x8B" => ' ', # F6
    # "\x8C" => ' ', # F8
-   
-   "\x21" => '!', # shift+1
-   "\x22" => '"', # shift+2
-   "\x23" => '#', # shift+3
-   "\x24" => '$', # shift+4
-   "\x25" => '%', # shift+5
-   "\x26" => '&', # shift+6
-   "\x27" => "'", # shift+7
-   "\x28" => '(', # shift+8
-   "\x29" => ')', # shift+9
-   
+
+   # "\x14" => ' ', # DEL  !!!  TODO 
+
    # "\x81" => ' ', # C+1, BLK
    # "\x95" => ' ', # C+2, WHT
    # "\x96" => ' ', # C+3, RED
