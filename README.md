@@ -5,14 +5,17 @@ Vulnerable PETSCII/C64 compatible perl BBS Daemon - just for fun, very wip
 * reformat character set 2 stuff for addition to the incomplete Text::Convert::PETSCII
 * cpan-ize
 * merge msg reader
+* MSG draft editor
+* MSG poster - refresh message c64 via F5 or something - see draft editor
 * lockfile mechanism for get/saveconf
-* msg poster
-   * C64/PETSCII case
 * msg categories
 * pms
 * limit concurrent connections
 * limit connections per IP 
 * show / lookup by dates lol
+* add common auto d/c ( a la menu_post 32 x nil quit ) 
+* update PETSCiiHex2ASCII to use placeholder instead of dropping nonmatches?
+* store c64 color + shapes in msgs?
 
 # DEPENDS
 * IO::Socket::INET - https://metacpan.org/pod/IO::Socket::INET

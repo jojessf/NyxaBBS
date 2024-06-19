@@ -13,6 +13,8 @@ use File::Path qw(make_path);
 # --------------------------------------------------------------------------- #
 # /\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ #
 # --------------------------------------------------------------------------- #
+sub ascii2hexr{shift;my$m;foreach my$c(split//,shift){$m.=uc unpack"H*",$c;$m.=" "};return$m}
+
 sub new {
    my $class = shift;
    my $server_socket = shift;
@@ -56,7 +58,6 @@ sub new {
    # lastmsg [date] 
    if ( $postq > 1 ) {
       PQCHK: for (my $pq = $postq; $pq>=0; $pq--) {
-         print "~>".$pq . "\n";
          my $lastmsg = $self->getconf("msg/".$self->postqfile($pq));
          if ( $lastmsg ne 0 ) {
             $self->{bbs}->{lastmsg} = $lastmsg->{date};
@@ -64,8 +65,6 @@ sub new {
          }
       }
    }
-   
-   
    
    return $self;
 };
@@ -75,8 +74,7 @@ sub quit {
    my $user_conf = shift;
       $user_conf->{quit} = 1;
    return;
-};
-
+}
 
 sub sendbbs {
    my $self       = shift;
@@ -108,7 +106,9 @@ sub debug {
    my $lvl   = shift;
    my $msg   = shift;
       $lvl //= "debug";
-   if ( $lvl =~ /[a-zA-Z]/ ) {
+   if ( $lvl eq 'serv' ) {
+      print $msg . "\n";
+   } elsif ( $lvl =~ /[a-zA-Z]/ ) {
       print $msg . "\n" if $ENV{DEBUG} eq $lvl; 
    } else {
       print $msg . "\n" if $ENV{DEBUG} >= $lvl; 
@@ -129,15 +129,15 @@ sub getconf {
    my $hash  = {};
    my $filepath = $self->{ServerParms}->{confdir} . "/" . $file;
    
-   $self->debug("conf", "getconf - $filepath");
      
    if ( ! -e $filepath ) {
       $self->debug("conf", "getconf - $filepath - failed");
       return 0;
    }
+   $self->debug("serv", "getconf - $filepath");
    
    my $slurp;
-   open IF, "<", $filepath;
+   open IF, "<", $filepath or $self->debug("serv", "getconf - $filepath - failed spectacularly");
    while(<IF>) {$slurp .= $_}
    close IF;
    
@@ -174,9 +174,21 @@ sub saveconf {
 
 sub msg_put {
    my $self      = shift;
-   my $user_conf = shift;
-   
-   
+   my %user_conf = %{ +shift };
+   my $post      = shift;
+   my $putopt    = shift;
+      $putopt->{draft} //= 0;
+      
+   my $postq = $self->{bbs}->{postq};
+   my $date  = localtime;
+   my $fi    = $self->postqfile($postq);
+   $self->saveconf("msg/$fi", {
+      msg   => $post,
+      user  => $user_conf{user},
+      date  => $date,
+      draft => $putopt->{draft},
+   });
+   $self->{bbs}->{lastmsg} = $date;   
    return 1;
 }
 
@@ -204,22 +216,12 @@ sub skipsplash {
 sub colorcodes {
    my $self = shift;
    my $msg = shift;
-   $msg =~ s/\@pcx{white}/\x05/g; # must be lc here!
-   $msg =~ s/\@pcx{red}/\x1C/g;
-   $msg =~ s/\@pcx{green}/\x1E/g;
-   $msg =~ s/\@pcx{blue}/\x1F/g;
-   $msg =~ s/\@pcx{orange}/\x81/g;
-   $msg =~ s/\@pcx{black}/\x90/g;
-   $msg =~ s/\@pcx{brown}/\x95/g;
-   $msg =~ s/\@pcx{pink}/\x96/g;
-   $msg =~ s/\@pcx{darkgray}/\x97/g;
-   $msg =~ s/\@pcx{gray}/\x98/g;
-   $msg =~ s/\@pcx{lightgreen}/\x99/g;
-   $msg =~ s/\@pcx{lightblue}/\x9A/g;
-   $msg =~ s/\@pcx{lightgray}/\x9B/g;
-   $msg =~ s/\@pcx{purple}/\x9C/g;
-   $msg =~ s/\@pcx{yellow}/\x9E/g;
-   $msg =~ s/\@pcx{cyan}/\x9F/g;
+   
+   foreach my $key ( keys %Net::BBS::Nyxa::CharTable::ColorByName ) {
+      my $val = $Net::BBS::Nyxa::CharTable::ColorByName{$key};
+      $msg =~ s/\@pcx{$key}/$val/g; # must be lc here!
+   }
+
    return $msg;
 } # colorcodes
 
@@ -338,7 +340,22 @@ sub menu_zero {
          $user_conf->{PETSCII} = 0;
       }   
       $self->sendbbs($user_conf, $res . "\r\n");
-      $self->menu_main($user_conf, $tid);
+      
+      if ( $ENV{DEBUG_POST} == 1 ) { # userless posting danger 
+         $self->debug("serv", "WARNING - userless DEBUG_POST menu mode");
+         $self->skipsplash;
+         $self->menu_post($user_conf, $tid); # test post menu w/o login
+         $self->skipsplash;
+         $self->menu_bbs($user_conf, $tid);
+      } elsif ( $ENV{DEBUG_BBS} ) {
+         $self->debug("serv", "WARNING - userless DEBUG_BBS menu mode");
+         $self->skipsplash;
+         $self->menu_bbs($user_conf, $tid);
+         $self->skipsplash;
+      } else {
+         $self->menu_main($user_conf, $tid);
+      }
+      
       last ZEROCON;
    } # Net::BBS::Nyxa::PRE / while connected
    
@@ -642,6 +659,7 @@ sub menu_bbs {
          # ----------------------------- #
          if ( $user_data =~ /^(p|post)[\r\n]*$/i ) {
             %user_conf = %{ $self->menu_post(\%user_conf, $tid) };
+            $self->skipsplash;
          }
          
          # ----------------------------- #
@@ -649,10 +667,11 @@ sub menu_bbs {
          # ----------------------------- #
          if ( $user_data =~ /^(s|stats)[\r\n]*$/i ) {
             $self->menu_stats(\%user_conf);
+            $self->skipsplash;
          }
 
          # ----------------------------- #
-         # REPRINT MAIN MENU
+         # REPRINT BBS MENU
          # ----------------------------- #
          if ($user_data) {
             if ( $user_conf{PETSCII} ) {
@@ -693,42 +712,58 @@ sub menu_post {
    
    if ( $user_conf{PETSCII} ) {
       my $L = "\x5c"; # quid
-      $self->sendbbs(\%user_conf, "\@PCX{RED}" . $L ."q\@PCX{LIGHTGRAY} to bail; \@PCX{GREEN}". $L ."s\@PCX{LIGHTGRAY} to save; \@PCX{ORANGE}". $L ."d\@PCX{LIGHTGRAY} to draft [wip]\r\n");
+      $self->sendbbs(\%user_conf, "\@PCX{RED}" . $L ."q\@PCX{LIGHTGRAY} to bail; \@PCX{GREEN}". $L ."s\@PCX{LIGHTGRAY} to save; \@PCX{ORANGE}". $L ."d\@PCX{LIGHTGRAY} to draft[wip]\r\n");
       # TODO - fix 
    } else {
-      $self->sendbbs(\%user_conf, "\@PCX{RED}/q\@PCX{LIGHTGRAY} to bail; \@PCX{GREEN}/s\@PCX{LIGHTGRAY} to save; \@PCX{ORANGE}/d\@PCX{LIGHTGRAY} to draft [wip]\r\n");
+      $self->sendbbs(\%user_conf, "\@PCX{RED}/q\@PCX{LIGHTGRAY} to bail; \@PCX{GREEN}/s\@PCX{LIGHTGRAY} to save; \@PCX{ORANGE}/d\@PCX{LIGHTGRAY} to draft[wip]\r\n");
    }
    
    my $post    = "";
    my $postop = undef;
+   
+   my $nilcount =0;
    PCON: while ($sock->connected()) {
       $sock->recv( $user_data,  1024 );
       
-      if ( $user_conf{PETSCII} ) {
-         $self->sendbbs(\%user_conf, $user_data);
-      }
+      $nilcount++ if $user_data eq '';
+      return if $nilcount >= 32;  # leave or increase pls :3 20240619
       
-      $post .= $user_data;
-      if ( $post =~ s/(.*)\\s.{,5}$/$1/i ) { $postop = "s"; last PCON };
-   }
+      if ( $user_conf{PETSCII} ) {
+         my $rawchar = $user_data;
+         my $asciich = $Net::BBS::Nyxa::CharTable::PETSCiiHex2ASCII{$rawchar};
+         $self->debug("CHAR", "$nilcount <".$asciich.">" . uc(unpack("H*", $rawchar)) ) if $rawchar;
+         $sock->send($rawchar);
+         $asciich = undef if $asciich eq '';     # if it doesn't match our table, nothing!  
+         $post .= $asciich if defined($asciich); # ignore nil but not 0, which we want!
+         chop($post) if $rawchar eq "\x14";
+      } else {
+         $post .= $user_data;
+      }
+      if ( $post =~ s/(.*)[\\£]q.{,5}$/$1/i ) { $postop = "q"; last PCON };
+      if ( $post =~ s/(.*)[\\£]s.{,5}$/$1/i ) { $postop = "s"; last PCON };
+      if ( $post =~ s/(.*)[\\£]d.{,5}$/$1/i ) { $postop = "d"; last PCON };
    
-   if ( $postop eq 's' ) {
+   } # CONNECTED 
+   
+   my $ch; 
+   $ch = chop($post);
+   $post .= $ch if $ch ne "\xC2";
+   $ch = chop($post);
+   $post .= $ch if $ch ne "\x20";
+   
+   
+   my $draft = 0;
+   if ( $postop =~ /[ds]/ ) {
+      $draft = 1 if $postop eq 'd';
       $post =~ s/\s*(\r\n|\r|\n){3,}/\r\n\r\n/g; # limit to two consecutive line feeds
       
       $self->sendbbs(\%user_conf, "\r\n\r\n");
       $self->sendbbs(\%user_conf, "okay, so:\r\n");
-      $self->sendbbs(\%user_conf, "<<<$post>>>");
+      $sock->send($post);
 
       my $postq = $self->{bbs}->{postq};
-      my $date  = localtime;
-      my $fi    = $self->postqfile($postq);
-      $self->saveconf("msg/$fi", {
-         msg  => $post,
-         user => $user_conf{user},
-         date => $date,
-      });
-      $self->{bbs}->{lastmsg} = $date;
-
+      
+      $self->msg_put(\%user_conf, $post, {draft=>$draft});
    }
    
    $self->sendbbs(\%user_conf, "\r\n\r\n");
