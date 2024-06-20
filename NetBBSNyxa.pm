@@ -25,6 +25,10 @@ sub new {
       threadq         => 0,
       json            => JSON->new->allow_nonref,
       
+      list_lim        => 8,
+      list_showdate   => 1,
+      
+      
       PETSCII2ASCII    => $Net::BBS::Nyxa::CharTable::PETSCII2ASCII,
       ASCII2PETSCII    => $Net::BBS::Nyxa::CharTable::ASCII2PETSCII,
       C64ColorByName   => $Net::BBS::Nyxa::CharTable::C64ColorByName,
@@ -49,8 +53,12 @@ sub new {
          
    # init vars 
    
-   if ( $self->getconf("bbs/postq") == 0 ) {
-      $self->saveconf("bbs/postq", {postq=>0});
+   $self->{bbs}->{postq} //= 0;
+   my $test_postq = $self->getconf("bbs/postq");
+   if ( $test_postq == 0 ) {
+      $self->saveconf("bbs/postq", {postq=> $self->{bbs}->{postq} });
+   } else {
+      $self->{bbs}->{postq} = $test_postq;
    }
    
    # BBS Stats =====================================================
@@ -212,23 +220,22 @@ sub msg_put {
       msg   => $post,
       user  => $user_conf->{user},
       date  => $date,
-      # draft => $putopt->{draft},
-      # subject => $putopt->{subject},
    };
    
-   foreach my $key (sort keys %{$putopt}) {
+   foreach my $key (sort keys %{$putopt}) { # see: subject, draft 
       $msg->{$key} = $putopt->{$key};
    }
    
    my $fi      = $self->postqfile($postq);
-   my $write = $self->saveconf("msg/$fi", $msg, {noclobber=>1});
-   
+   my $write = 0;
    while ( ! $write ) {
       $postq++;
+      $self->saveconf("bbs/postq", {postq=>$postq});
+      $self->{bbs}->{postq} = $postq;
+      $msg->{postq}         = $postq;
       $fi    = $self->postqfile($postq);
       $write = $self->saveconf("msg/$fi", $msg, {noclobber=>1});
    }
-   
    
    $self->{bbs}->{lastmsg} = $date;   
    return 1;
@@ -467,7 +474,10 @@ sub menu_register {
          "zip"       => $self->prompt(\%user_conf, " postcode    : ", {charlim=>12}),
          "country"   => $self->prompt(\%user_conf, " country     : ", {charlim=>48}),
    };
-   $self->sendbbs(\%user_conf, "Confirm:" . Dumper([$user_file]) . "\r\n");
+   # my $confirmstr = Dumper([$user_file]);
+   # $confirmstr =~ s/^\$VAR1.=.//;
+   # $confirmstr =~ s/\n/\r\n/g;
+   # $self->sendbbs(\%user_conf, "Confirm:" . $confirmstr . "\r\n");
    
    if ( $self->getconf("user/".$user_file->{user}) ) {
       $self->sendbbs(\%user_conf, "Invalid user: ".$user_file->{user}."\r\n");
@@ -787,10 +797,12 @@ sub menu_post {
    
    if ( $user_conf{PETSCII} ) {
       my $L = "\x5c"; # quid
-      $self->sendbbs(\%user_conf, "\@PCX{RED}" . $L ."q\@PCX{LIGHTGRAY} to bail; \@PCX{GREEN}". $L ."s\@PCX{LIGHTGRAY} to save; \@PCX{ORANGE}". $L ."d\@PCX{LIGHTGRAY} to draft[wip]\r\n");
+      # $self->sendbbs(\%user_conf, "\@PCX{RED}" . $L ."q\@PCX{LIGHTGRAY} to bail; \@PCX{GREEN}". $L ."s\@PCX{LIGHTGRAY} to save; \@PCX{ORANGE}". $L ."d\@PCX{LIGHTGRAY} to draft[wip]\r\n");
+      $self->sendbbs(\%user_conf, "\@PCX{RED}" . $L ."q\@PCX{LIGHTGRAY} to bail; \@PCX{GREEN}". $L ."s\@PCX{LIGHTGRAY} to save; \@PCX{ORANGE}"."\r\n");
       # TODO - fix 
    } else {
-      $self->sendbbs(\%user_conf, "\@PCX{RED}/q\@PCX{LIGHTGRAY} to bail; \@PCX{GREEN}/s\@PCX{LIGHTGRAY} to save; \@PCX{ORANGE}/d\@PCX{LIGHTGRAY} to draft[wip]\r\n");
+      # $self->sendbbs(\%user_conf, "\@PCX{RED}\\q\@PCX{LIGHTGRAY} to bail; \@PCX{GREEN}\\s\@PCX{LIGHTGRAY} to save; \@PCX{ORANGE}/d\@PCX{LIGHTGRAY} to draft[wip]\r\n");
+      $self->sendbbs(\%user_conf, "\@PCX{RED}\\q\@PCX{LIGHTGRAY} to bail; \@PCX{GREEN}\\s\@PCX{LIGHTGRAY} to save;\r\n");
    }
    
    my $post    = "";
@@ -835,9 +847,7 @@ sub menu_post {
       $self->sendbbs(\%user_conf, "\r\n\r\n");
       $self->sendbbs(\%user_conf, "\@PCX{LIGHTGRAY}");
       # my $postq = $self->{bbs}->{postq};
-      $self->msg_put(\%user_conf, $post, {draft=>$draft});
-      
-      $self->msg_put(\%user_conf, $post, {draft=>$draft});
+      $self->msg_put(\%user_conf, $post, {draft=>$draft,subject=>$subject});
    }
    
    $self->sendbbs(\%user_conf, "\r\n\r\n");
@@ -875,8 +885,7 @@ sub menu_read_byNum {
       $self->sendbbs(\%user_conf, "\@PCX{BLUE}Subject: \@PCX{ORANGE}".$msg->{subject}."\@PCX{LIGHTGRAY}\r\n");
       $self->sendbbs(\%user_conf, "\@PCX{PURPLE}"."-" x 35 . "\@PCX{LIGHTGRAY}\r\n");
       $self->sendbbs(\%user_conf, "\r\n\r\n");
-      $msg->{msg} =~ s/\\\\/\\/g; # clean up escaped slashies
-      print ">>>".$msg->{msg} . "<<<\n";
+      $msg->{msg} =~ s/\x5c\x5c/\x5c/g; # clean up escaped slashies
       $self->sendbbs(\%user_conf, $msg->{msg});
    }
    
@@ -895,43 +904,49 @@ sub menu_list_byNum {
    my %ServerParms = %{ $self->{ServerParms} };
    my $user_data   = undef;
       
-   $self->sendbbs(\%user_conf, "\@PCX{LIGHTGRAY}Last msg : \@PCX{GREEN}".$self->{bbs}->{postq}."\@PCX{LIGHTGRAY}\r\n\r\n");  
-   $self->sendbbs(\%user_conf, "\@PCX{CYAN}Enter message number\@PCX{LIGHTGRAY}\r\n");
-   
-   my $start = $self->prompt(\%user_conf, "starting msg num: ", {charlim=>7});
-   my $postq = $self->{bbs}->{postq};
-      
-   
    my @nums = ();
    while (<conf/msg/*>) {
       s/^conf\/msg\///;
       s/^[ 0]+//g;
-      print $_ . "\n";
+      if ( $_ > $self->{bbs}->{postq} ) { 
+         $self->{bbs}->{postq} = $_;
+      }
       push(@nums, $_);
    }
+   # @nums = reverse @nums; # breaks q aaa x3 fix this
    
-   @nums = reverse @nums;
+   $self->sendbbs(\%user_conf, "\@PCX{LIGHTGRAY}Last msg : \@PCX{GREEN}".$self->{bbs}->{postq}."\@PCX{LIGHTGRAY}\r\n\r\n");  
+   $self->sendbbs(\%user_conf, "\@PCX{CYAN}Enter message number\@PCX{LIGHTGRAY}\r\n");
+   
+   my $start = $self->prompt(\%user_conf, "starting msg num: ", {charlim=>7});   
+   $start ||= $self->{bbs}->{postq} - $self->{list_lim} + 1;
+   
    
    my $q = 0;
    LIST: foreach my $msgno ( @nums ) {
-      last LIST if $q >= 25;
+      last LIST if $q >= $self->{list_lim};
+      next LIST if $msgno < $start - 1;
       # --------- #
       my $msg   = $self->msg_get(\%user_conf, $msgno, {quiet=>1});
       # --------- #
       next LIST if ref($msg) !~ /HASH/;
       $msg->{user}    //= "spaceboyfriend";
-      $msg->{subject} //= "mysterious messagezzzz";
+      $msg->{subject} //= "mysterious messagez";
+      # --------- #
+      if ( $self->{list_showdate} ) {
+         $self->sendbbs(\%user_conf, "\@PCX{LIGHTBLUE}" . "-" x 3 . "\@PCX{BLUE}". $msg->{date} . "\@PCX{LIGHTBLUE}". "-" x 9 . "\@PCX{LIGHTGRAY}\r\n");
+      }
       # --------- #
       $self->sendbbs(\%user_conf, "\@PCX{CYAN}". sprintf("%4s","".$msgno) );
       $self->sendbbs(\%user_conf, " \@PCX{GREEN}" . sprintf("%12s",substr($msg->{user},0,12)) );
-      $self->sendbbs(\%user_conf, " \@PCX{LIGHTBLUE}" . substr($msg->{subject}, 0, 18) );
+      $self->sendbbs(\%user_conf, "\@PCX{PURPLE}: \@PCX{LIGHTGREEN}" . substr($msg->{subject}, 0, 17) );
       $self->sendbbs(\%user_conf, "\@PCX{LIGHTGRAY}");
       $self->sendbbs(\%user_conf, "\r\n");         
       # --------- #
       $q++;
    }
    
-   $self->sendbbs(\%user_conf, "\r\n\r\n");
+   # $self->sendbbs(\%user_conf, "\r\n");
    
    return \%user_conf;
 } # menu_read
