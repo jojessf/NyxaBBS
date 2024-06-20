@@ -268,7 +268,7 @@ sub colorcodes {
    my $msg = shift;
    foreach my $key ( keys %{ $self->{C64ColorByName} } ) {
       my $val = $self->{C64ColorByName}->{$key};
-      $msg =~ s/\@pcx{$key}/$val/g; # must be lc here!
+      $msg =~ s/\\?\@pcx{$key}/$val/g; # must be lc here!
    }
    return $msg;
 } # colorcodes
@@ -886,6 +886,8 @@ sub menu_read_byNum {
       $self->sendbbs(\%user_conf, "\@PCX{PURPLE}"."-" x 35 . "\@PCX{LIGHTGRAY}\r\n");
       $self->sendbbs(\%user_conf, "\r\n\r\n");
       $msg->{msg} =~ s/\x5c\x5c/\x5c/g; # clean up escaped slashies
+      $msg->{msg} =~ s/\x5c\x72/\r/g; # clean up escaped slashies
+      
       $self->sendbbs(\%user_conf, $msg->{msg});
    }
    
