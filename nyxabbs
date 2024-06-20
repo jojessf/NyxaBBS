@@ -34,10 +34,13 @@ my %ServerParms = (
     menumsg_bbs => "\r\n\r\n\@PCX{CYAN}~\@PCX{LIGHTBLUE}UwU\@PCX{CYAN}~\@PCX{PURPLE}".
                   "NyxaBBS\@PCX{LIGHTGRAY}:\@PCX{LIGHTGREEN}BBSMenu".
                   "\@PCX{CYAN}~\@PCX{LIGHTGRAY}\@PCX{LIGHTBLUE}UwU\@PCX{CYAN}~\@PCX{LIGHTGRAY} \r\n\r\n" . 
+                  "[\@PCX{CYAN}l\@PCX{LIGHTGRAY}]list ".
                   "[\@PCX{GREEN}r\@PCX{LIGHTGRAY}]ead ".
-                  "[\@PCX{CYAN}p\@PCX{LIGHTGRAY}]ost ".
+                  "[\@PCX{LIGHTBLUE}p\@PCX{LIGHTGRAY}]ost ".
+                  "\r\n".
                   "[\@PCX{PURPLE}s\@PCX{LIGHTGRAY}]tats ".
-                  "[\@PCX{RED}q\@PCX{LIGHTGRAY}]uit \r\n",
+                  "[\@PCX{RED}q\@PCX{LIGHTGRAY}]uit ".
+                  "\r\n"
 );
 # --------------------------------------------------------------------------- #
 if ( -e $ServerParms{PETSCIISplash00FI} ) {
