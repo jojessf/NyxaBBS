@@ -14,7 +14,7 @@ sub ascii2hexr{my$m;foreach my$c(split//,shift){$m.=uc unpack"H*",$c;$m.=" "};re
 #          $Net::BBS::Nyxa::CharTable::ColorByName{$key}
 #     $msg =~ s/\@pcx{$key}/$val/g;
 # --------------------------------------------------------------------------- #
-our %ColorByName = (
+our $C64ColorByName = {
    'white'        =>   "\x05",
    'red'          =>   "\x1C",
    'green'        =>   "\x1E",
@@ -31,7 +31,7 @@ our %ColorByName = (
    'purple'       =>   "\x9C",
    'yellow'       =>   "\x9E",
    'cyan'         =>   "\x9F",
-);
+};
 
 
 # --------------------------------------------------------------------------- #
@@ -39,7 +39,7 @@ our %ColorByName = (
 #  my $ascii   = $Net::BBS::Nyxa::CharTable::PETSCiiHex2ASCII{$petscii}
 #  my $petscii = $Net::BBS::Nyxa::CharTable::PETSCiiHex2ASCII{$ascii}
 # --------------------------------------------------------------------------- #
-our %PETSCiiHex2ASCII = (
+our $PETSCII2ASCII = {
    # "\xC1" => "A", 
    #  ...
    # "\xDA" => "Z",
@@ -98,50 +98,58 @@ our %PETSCiiHex2ASCII = (
 
    # "\x14" => ' ', # DEL  !!!  TODO 
 
-   # "\x81" => ' ', # C+1, BLK
-   # "\x95" => ' ', # C+2, WHT
-   # "\x96" => ' ', # C+3, RED
-   # "\x97" => ' ', # C+4, CYN
-   # "\x98" => ' ', # C+5, PUR
-   # "\x99" => ' ', # C+6, GRN
-   # "\x9A" => ' ', # C+7, BLU
-   # "\x9B" => ' ', # C+8, YEL
+   "\x81" => '\@PCX{ORANGE}',     # C+1, C=BLK ~ ORANGE
+   "\x95" => '\@PCX{BROWN}',      # C+2, C=WHT ~ BROWN 
+   "\x96" => '\@PCX{PINK}',       # C+3, C=RED ~ pink
+   "\x97" => '\@PCX{DARKGRAY}',   # C+4, C=CYN ~ DARK GRAY 
+   "\x98" => '\@PCX{GRAY}',       # C+5, C=PUR ~ GRAY 
+   "\x99" => '\@PCX{LIGHTGREEN}', # C+6, C=GRN ~ LIGHT GREEN
+   "\x9A" => '\@PCX{LIGHTBLUE}',  # C+7, C=BLU ~ LIGHT BLUE 
+   "\x9B" => '\@PCX{LIGHTGRAY}',  # C+8, C=YEL ~ lightgray
+   "\x90" => '\@PCX{BLACK}',      # Ctrl+1, Ct BLK ~ Black 
+   "\x05" => '\@PCX{WHITE}',      # Ctrl+2, Ct WHT ~ 
+   "\x1C" => '\@PCX{RED}',        # Ctrl+3, Ct RED ~ Red 
+   "\x9F" => '\@PCX{CYAN}',       # Ctrl+4, Ct CYN ~ Cyan 
+   "\x9C" => '\@PCX{PURPLE}',     # Ctrl+5, Ct PUR ~ 
+   "\x1E" => '\@PCX{GREEN}',      # Ctrl+6, Ct GRN ~ 
+   "\x1F" => '\@PCX{BLUE}',       # Ctrl+7, Ct BLU ~ BLUE 
+   "\x9E" => '\@PCX{YELLOW}',     # Ctrl+8, Ct YEL ~ YELLOW
    
    
-);
-our %ASCII2PETSCiiHex = (
+};
+our %ASCII2PETSCII = {
    # "\xC1" => "A", 
 
-);
+};
 
 # Generate uc
-# uc - 0xC1 ~ PETSCII(A) .. 0xDA ~ PETSCII(Z) 
+# uc - 0xC1(193) ~ PETSCII(A) .. 0xDA(218) ~ PETSCII(Z) 
 my $ucDec = 193;
 for ( "A" .. "Z" ) {
    my $l  = $_;
    my $hx = pack"H*",sprintf("%02X", $ucDec);
-   $PETSCiiHex2ASCII{$hx} = $l;
-   $ASCII2PETSCiiHex{$l}  = $hx;
+   $PETSCII2ASCII->{$hx} = $l;
+   $ASCII2PETSCII->{$l}  = $hx;
    $ucDec++;
 }
 # Generate lc 
-# uc - 0x56 ~ PETSCII(A) .. 0xDA ~ PETSCII(Z) 
+# uc - 0x41(65) ~ PETSCII(A) .. 0x5A(90) ~ PETSCII(Z) 
 my $lcDec = 65;
 for ( "a" .. "z" ) {
    my $l  = $_;
    my $hx = pack"H*",sprintf("%02X", $lcDec);
-   $PETSCiiHex2ASCII{$hx} = $l;
-   $ASCII2PETSCiiHex{$l}  = $hx;
+   $PETSCII2ASCII->{$hx} = $l;
+   $ASCII2PETSCII->{$l}  = $hx;
    $lcDec++;
 }
-# 
-# 0x30 ~ PETSCII(0) .. 0x39 ~ PETSCII(9)
+# Generate Numbers
+# 0x30(48) ~ PETSCII(0) .. 0x39(57) ~ PETSCII(9)
 my $numDec = 48;
 for ( "0" .. "9" ) {
    my $l  = $_;
    my $hx = pack"H*",sprintf("%02X", $numDec);
-   $PETSCiiHex2ASCII{$hx} = $l;
-   $ASCII2PETSCiiHex{$l}  = $hx;
+   $PETSCII2ASCII->{$hx} = $l;
+   $ASCII2PETSCII->{$l}  = $hx;
    $numDec++;
 }
 
