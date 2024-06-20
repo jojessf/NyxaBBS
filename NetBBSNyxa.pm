@@ -13,8 +13,6 @@ use File::Path qw(make_path);
 # --------------------------------------------------------------------------- #
 # /\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ #
 # --------------------------------------------------------------------------- #
-sub ascii2hexr{shift;my$m;foreach my$c(split//,shift){$m.=uc unpack"H*",$c;$m.=" "};return$m}
-
 sub new {
    my $class = shift;
    my $server_socket = shift;
@@ -26,6 +24,11 @@ sub new {
       threads         => {},
       threadq         => 0,
       json            => JSON->new->allow_nonref,
+      
+      PETSCII2ASCII    => $Net::BBS::Nyxa::CharTable::PETSCII2ASCII,
+      ASCII2PETSCII    => $Net::BBS::Nyxa::CharTable::ASCII2PETSCII,
+      C64ColorByName   => $Net::BBS::Nyxa::CharTable::C64ColorByName,
+      
       UserParmDefault => {
          'user' => undef,
          'pass' => undef,
@@ -51,7 +54,6 @@ sub new {
    }
    
    # BBS Stats =====================================================
-   $self->{bbs}->{BBSTAT} = "-" x 16;
    my $postq = $self->getconf("bbs/postq")->{postq};
    $self->{bbs}->{postq} = $postq;
    
@@ -95,10 +97,30 @@ sub sendbbs {
    return 1;
 }
 
+sub sendbbs {
+   my $self       = shift;
+   my $user_conf  = shift;
+   my $msg        = shift;
+   my $sock       = $user_conf->{sock};
+   $msg =~ s/\n//g if $user_conf->{PETSCII};
+   # ---------------------- #
+   $msg = ascii_to_petscii($msg) if $user_conf->{PETSCII};
+   
+   if ( $user_conf->{PETSCII} )   { $msg = $self->colorcodes($msg) };
+   if ( ! $user_conf->{PETSCII} ) { $msg = $self->scrubcodes($msg) };
+   
+   print "PCX>>$msg<<\n" if $ENV{DEBUG} eq 'sendbbs';
+   
+   $sock->send($msg);
+   # ---------------------- #
+   return 1;
+}
+
+
 sub postqfile {
    my $self = shift;
    my $postq = shift;
-   return sprintf("%07d", $postq.".msg");
+   return sprintf("%07d", $postq);
 }
 
 sub debug {
@@ -153,6 +175,7 @@ sub saveconf {
    my $self  = shift;
    my $file  = shift;
    my $hash  = shift;
+   my $opt   = shift; 
    my $filepath = $self->{ServerParms}->{confdir} . "/" . $file;
    my $testpath = $filepath;
       $testpath =~ s/^(.*)\/.*/$1/;
@@ -163,6 +186,7 @@ sub saveconf {
    die $self->{class} . "ERROR - can't make_path $testpath" if ! -d $testpath;
       
    my $jsonstr = $self->{json}->pretty->encode( $hash );
+   if ( -e $filepath ) { return 0; } 
    
    open OF, ">", $filepath;
    print OF $jsonstr;
@@ -174,20 +198,37 @@ sub saveconf {
 
 sub msg_put {
    my $self      = shift;
-   my %user_conf = %{ +shift };
+   my $user_conf = shift;
    my $post      = shift;
    my $putopt    = shift;
       $putopt->{draft} //= 0;
+      $putopt->{postq} //= $self->{bbs}->{postq};
       
-   my $postq = $self->{bbs}->{postq};
-   my $date  = localtime;
-   my $fi    = $self->postqfile($postq);
-   $self->saveconf("msg/$fi", {
+   my $postq   = $putopt->{postq};
+      $postq //= $self->{bbs}->{postq};
+   my $date    = localtime;
+   my $msg = {
       msg   => $post,
-      user  => $user_conf{user},
+      user  => $user_conf->{user},
       date  => $date,
-      draft => $putopt->{draft},
-   });
+      # draft => $putopt->{draft},
+      # subject => $putopt->{subject},
+   };
+   
+   foreach my $key (sort keys %{$putopt}) {
+      $msg->{$key} = $putopt->{$key};
+   }
+   
+   my $fi      = $self->postqfile($postq);
+   my $write = $self->saveconf("msg/$fi", $msg, {noclobber=>1});
+   
+   while ( ! $write ) {
+      $postq++;
+      $fi    = $self->postqfile($postq);
+      $write = $self->saveconf("msg/$fi", $msg, {noclobber=>1});
+   }
+   
+   
    $self->{bbs}->{lastmsg} = $date;   
    return 1;
 }
@@ -195,9 +236,9 @@ sub msg_put {
 sub msg_get {
    my $self      = shift;
    my $user_conf = shift;
-   
-   
-   return 1;
+   my $msgno     = shift;
+   $msgno = sprintf("%07d", $msgno);
+   return $self->getconf("msg/$msgno");
 }
 
 sub sleep {
@@ -216,12 +257,10 @@ sub skipsplash {
 sub colorcodes {
    my $self = shift;
    my $msg = shift;
-   
-   foreach my $key ( keys %Net::BBS::Nyxa::CharTable::ColorByName ) {
-      my $val = $Net::BBS::Nyxa::CharTable::ColorByName{$key};
+   foreach my $key ( keys %{ $self->{C64ColorByName} } ) {
+      my $val = $self->{C64ColorByName}->{$key};
       $msg =~ s/\@pcx{$key}/$val/g; # must be lc here!
    }
-
    return $msg;
 } # colorcodes
 
@@ -231,6 +270,21 @@ sub scrubcodes {
    $msg =~ s/\@PCX{[a-zA-Z]+?}//g; # must be caps here! 
    return $msg;
 } # scrubcodes
+
+sub ascii2hexr{shift;my$m;foreach my$c(split//,shift){$m.=uc unpack"H*",$c;$m.=" "};return$m}
+sub ascii2hex {shift; return uc(unpack("H*", +shift))}
+sub ascii2hexl{shift;my $l=shift;return if length($l)>1;return uc(unpack("H*", $l))}
+
+sub petscii2asciil {
+   my $self = shift;
+   return $self->{PETSCII2ASCII}->{ +shift };
+}
+
+sub ascii2petscii {
+   my $self = shift;
+   return $self->{ASCII2PETSCII}->{ +shift };
+}
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 sub listen {
@@ -342,12 +396,14 @@ sub menu_zero {
       $self->sendbbs($user_conf, $res . "\r\n");
       
       if ( $ENV{DEBUG_POST} == 1 ) { # userless posting danger 
+         $user_conf->{user} //= "Debug - $tid";
          $self->debug("serv", "WARNING - userless DEBUG_POST menu mode");
          $self->skipsplash;
          $self->menu_post($user_conf, $tid); # test post menu w/o login
          $self->skipsplash;
          $self->menu_bbs($user_conf, $tid);
       } elsif ( $ENV{DEBUG_BBS} ) {
+         $user_conf->{user} //= "Debug - $tid";
          $self->debug("serv", "WARNING - userless DEBUG_BBS menu mode");
          $self->skipsplash;
          $self->menu_bbs($user_conf, $tid);
@@ -470,29 +526,32 @@ sub menu_stats {
    my $self      = shift;
    my %user_conf = %{ +shift };
    my $tid = $user_conf{tid};
+   $self->{bbs}->{BBSTAT} //= "\@PCX{PURPLE}" . "-" x 16 . "\@PCX{LIGHTGRAY}";
+   $self->{bbs}->{laststat} = localtime;
    $self->sendbbs(\%user_conf, "\r\n");
    $user_conf{user}     //= "Guest - $tid";
-   $user_conf{USERSTAT} ||= "-" x 16;
+   $user_conf{USERSTAT} ||= "\@PCX{PURPLE}" . "-" x 16 . "\@PCX{LIGHTGRAY}";
    UCKey: foreach my $key ("USERSTAT", "user", "pass", "ip", "port", "loggedin") {
       my $val   = $user_conf{$key};
       $val =~ s/./*/g if $key =~ /pass/;
-      $self->sendbbs(\%user_conf, "[ ".sprintf("%-8s", $key)." ] $val\r\n");
+      $self->sendbbs(\%user_conf, "[ \@PCX{LIGHTGREEN}".sprintf("%-8s", $key)."\@PCX{LIGHTGRAY} ]\@PCX{CYAN} $val\@PCX{LIGHTGRAY}\r\n");
    }
    UCKey: foreach my $key (sort keys %user_conf) {
       next UCKey if $key =~ /^(sock|user|pass|ip|port|USERSTAT|add[12]|city|computer|country|state|zip|tid|loggedin)$/;
       my $val   = $user_conf{$key};
       next if (( ! defined($val) ) || ( $val eq '' ))  ;
-      $self->sendbbs(\%user_conf, "[ ".sprintf("%-8s", $key)." ] $val\r\n");
+      $self->sendbbs(\%user_conf, "[ \@PCX{GREEN}".sprintf("%-8s", $key)."\@PCX{LIGHTGRAY} ] \@PCX{CYAN}$val\@PCX{LIGHTGRAY}\r\n");
    }
    
-   ServKey: foreach my $key ("BBSTAT", "postq", "lastmsg") {
+   ServKey: foreach my $key ("BBSTAT", "postq", "lastmsg", "now") {
       my $val = $self->{bbs}->{$key};
       my $pkey = $key;
       next if (( ! defined($val) ) || ( $val eq '' ));
       $pkey =~ s/postq/msg count/;
-      $self->sendbbs(\%user_conf, "[ ".sprintf("%-8s", $key)." ] $val\r\n");
+      $self->sendbbs(\%user_conf, "[ \@PCX{LIGHTGREEN}".sprintf("%-8s", $key)."\@PCX{LIGHTGRAY} ] \@PCX{CYAN}$val\@PCX{LIGHTGRAY}\r\n");
    }
    
+   $self->sendbbs(\%user_conf, "\r\n \@PCX{LIGHTGREEN}The time is \@PCX{LIGHTBLUE}".localtime."\@PCX{LIGHTGRAY}\r\n");
    
    $self->sendbbs(\%user_conf, "\r\n");
    $self->skipsplash;
@@ -648,10 +707,20 @@ sub menu_bbs {
          }
 
          # ----------------------------- #
+         # [l]ist
+         # ----------------------------- #
+         if ( $user_data =~ /^(l|list)[\r\n]*$/i ) {
+            %user_conf = %{ $self->menu_list_byNum(\%user_conf, $tid) };
+            $self->skipsplash;
+         }
+
+         
+         # ----------------------------- #
          # [r]ead
          # ----------------------------- #
          if ( $user_data =~ /^(r|read)[\r\n]*$/i ) {
-            # %user_conf = %{ $self->menu_read(\%user_conf, $tid) };
+            %user_conf = %{ $self->menu_read_byNum(\%user_conf, $tid) };
+            $self->skipsplash;
          }
 
          # ----------------------------- #
@@ -704,11 +773,15 @@ sub menu_post {
    my $user_data   = undef;
    
    $self->{bbs}->{postq}++;
+   my $postq = $self->{bbs}->{postq};
    $self->saveconf("bbs/postq", {postq=>$self->{bbs}->{postq}});
    
    $self->debug("poststart", Dumper([\%user_conf]));
    
    $self->sendbbs(\%user_conf, "\@PCX{CYAN}What's on your mind, cutie? :3\@PCX{LIGHTGRAY}\r\n");
+   
+   my $subject = $self->prompt(\%user_conf, "msg subject  : ", {charlim=>24});
+   
    
    if ( $user_conf{PETSCII} ) {
       my $L = "\x5c"; # quid
@@ -730,8 +803,8 @@ sub menu_post {
       
       if ( $user_conf{PETSCII} ) {
          my $rawchar = $user_data;
-         my $asciich = $Net::BBS::Nyxa::CharTable::PETSCiiHex2ASCII{$rawchar};
-         $self->debug("CHAR", "$nilcount <".$asciich.">" . uc(unpack("H*", $rawchar)) ) if $rawchar;
+         my $asciich = $self->petscii2asciil( $rawchar );
+         $self->debug("CHAR", "$nilcount <".$asciich.">" . $self->ascii2hexl($asciich) ) if $rawchar;
          $sock->send($rawchar);
          $asciich = undef if $asciich eq '';     # if it doesn't match our table, nothing!  
          $post .= $asciich if defined($asciich); # ignore nil but not 0, which we want!
@@ -758,10 +831,9 @@ sub menu_post {
       $post =~ s/\s*(\r\n|\r|\n){3,}/\r\n\r\n/g; # limit to two consecutive line feeds
       
       $self->sendbbs(\%user_conf, "\r\n\r\n");
-      $self->sendbbs(\%user_conf, "okay, so:\r\n");
-      $sock->send($post);
-
-      my $postq = $self->{bbs}->{postq};
+      $self->sendbbs(\%user_conf, "\@PCX{LIGHTGRAY}");
+      # my $postq = $self->{bbs}->{postq};
+      $self->msg_put(\%user_conf, $post, {draft=>$draft});
       
       $self->msg_put(\%user_conf, $post, {draft=>$draft});
    }
@@ -771,6 +843,112 @@ sub menu_post {
    $self->debug("postend", Dumper([\%user_conf, $post]));
    return \%user_conf;
 } # menu_post
+
+
+
+sub menu_read_byNum {
+   my $self = shift;
+   my %user_conf   = %{+shift};
+   my $tid         = $user_conf{tid};
+   my $sock        = $user_conf{sock};
+   my %ServerParms = %{ $self->{ServerParms} };
+   my $user_data   = undef;
+      
+   $self->sendbbs(\%user_conf, "\@PCX{LIGHTGRAY}Last msg : \@PCX{GREEN}".$self->{bbs}->{postq}."\@PCX{LIGHTGRAY}\r\n\r\n");  
+   $self->sendbbs(\%user_conf, "\@PCX{CYAN}Enter message number\@PCX{LIGHTGRAY}\r\n");
+   
+   my $msgno = $self->prompt(\%user_conf, "msg num: ", {charlim=>7});
+   my $msg   = $self->msg_get(\%user_conf, $msgno);
+   
+   if ( ref($msg) =~ /HASH/ ) {
+      # $msg->{user} //= "unknown";
+      $msg->{user}    //= "spaceboyfriend";
+      $msg->{subject} //= "mysterious message";
+      
+      $self->debug("msgget", Dumper([\%user_conf, $msg]));
+      
+      $self->sendbbs(\%user_conf, "\@PCX{PURPLE}"."-" x 35 . "\@PCX{LIGHTGRAY}\r\n");
+      $self->sendbbs(\%user_conf, "\@PCX{BLUE}From: \@PCX{CYAN}".$msg->{user}."\@PCX{LIGHTGRAY}\r\n");
+      $self->sendbbs(\%user_conf, "\@PCX{BLUE}Date: \@PCX{CYAN}".$msg->{date}."\@PCX{LIGHTGRAY}\r\n");
+      $self->sendbbs(\%user_conf, "\@PCX{BLUE}Subject: \@PCX{ORANGE}".$msg->{subject}."\@PCX{LIGHTGRAY}\r\n");
+      $self->sendbbs(\%user_conf, "\@PCX{PURPLE}"."-" x 35 . "\@PCX{LIGHTGRAY}\r\n");
+      $self->sendbbs(\%user_conf, "\r\n\r\n");
+      $self->sendbbs(\%user_conf, $msg->{msg});
+   }
+   
+   
+   $self->sendbbs(\%user_conf, "\r\n\r\n");
+   
+   return \%user_conf;
+} # menu_read
+
+
+sub menu_list_byNum {
+   my $self = shift;
+   my %user_conf   = %{+shift};
+   my $tid         = $user_conf{tid};
+   my $sock        = $user_conf{sock};
+   my %ServerParms = %{ $self->{ServerParms} };
+   my $user_data   = undef;
+      
+   $self->sendbbs(\%user_conf, "\@PCX{LIGHTGRAY}Last msg : \@PCX{GREEN}".$self->{bbs}->{postq}."\@PCX{LIGHTGRAY}\r\n\r\n");  
+   $self->sendbbs(\%user_conf, "\@PCX{CYAN}Enter message number\@PCX{LIGHTGRAY}\r\n");
+   
+   my $start = $self->prompt(\%user_conf, "starting msg num: ", {charlim=>7});
+   my $postq = $self->{bbs}->{postq};
+      
+   
+   my @nums = ();
+   while (<conf/msg/*>) {
+      s/^conf\/msg\///;
+      s/^[ 0]+//g;
+      print $_ . "\n";
+      push(@nums, $_);
+   }
+   
+   @nums = reverse @nums;
+   
+   my $q = 0;
+   LIST: foreach my $msgno ( @nums ) {
+      last LIST if $q >= 25;
+      # --------- #
+      my $msg   = $self->msg_get(\%user_conf, $msgno);
+      # --------- #
+      next LIST if ref($msg) !~ /HASH/;
+      $msg->{user}    //= "spaceboyfriend";
+      $msg->{subject} //= "mysterious messagezzzz";
+      # --------- #
+      $self->sendbbs(\%user_conf, "\@PCX{CYAN}". sprintf("%4s","".$msgno) );
+      $self->sendbbs(\%user_conf, " \@PCX{GREEN}" . sprintf("%12s",substr($msg->{user},0,12)) );
+      $self->sendbbs(\%user_conf, " \@PCX{LIGHTBLUE}" . substr($msg->{subject}, 0, 18) );
+      $self->sendbbs(\%user_conf, "\@PCX{LIGHTGRAY}");
+      $self->sendbbs(\%user_conf, "\r\n");         
+      # --------- #
+      $q++;
+   }
+   
+   
+   # if ( ref($msg) =~ /HASH/ ) {
+   #    # $msg->{user} //= "unknown";
+   #    $msg->{user}    //= "spaceboyfriend";
+   #    $msg->{subject} //= "mysterious message";
+   #    
+   #    $self->debug("msgget", Dumper([\%user_conf, $msg]));
+   #    
+   #    $self->sendbbs(\%user_conf, "\@PCX{PURPLE}"."-" x 35 . "\@PCX{LIGHTGRAY}\r\n");
+   #    $self->sendbbs(\%user_conf, "\@PCX{BLUE}From: \@PCX{CYAN}".$msg->{user}."\@PCX{LIGHTGRAY}\r\n");
+   #    $self->sendbbs(\%user_conf, "\@PCX{BLUE}Date: \@PCX{CYAN}".$msg->{date}."\@PCX{LIGHTGRAY}\r\n");
+   #    $self->sendbbs(\%user_conf, "\@PCX{BLUE}Subject: \@PCX{ORANGE}".$msg->{subject}."\@PCX{LIGHTGRAY}\r\n");
+   #    $self->sendbbs(\%user_conf, "\@PCX{PURPLE}"."-" x 35 . "\@PCX{LIGHTGRAY}\r\n");
+   #    $self->sendbbs(\%user_conf, "\r\n\r\n");
+   #    $self->sendbbs(\%user_conf, $msg->{msg});
+   # }
+   
+   
+   $self->sendbbs(\%user_conf, "\r\n\r\n");
+   
+   return \%user_conf;
+} # menu_read
 
 # --------------------------------------------------------------------------- #
 # /\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ #
