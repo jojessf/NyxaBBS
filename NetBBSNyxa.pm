@@ -148,15 +148,16 @@ sub debug {
 sub getconf {
    my $self  = shift;
    my $file  = shift;
+   my $gopt  = shift;
    my $hash  = {};
    my $filepath = $self->{ServerParms}->{confdir} . "/" . $file;
-   
-     
+
    if ( ! -e $filepath ) {
       $self->debug("conf", "getconf - $filepath - failed");
       return 0;
    }
-   $self->debug("serv", "getconf - $filepath");
+   
+   $self->debug("conf", "getconf - $filepath");
    
    my $slurp;
    open IF, "<", $filepath or $self->debug("serv", "getconf - $filepath - failed spectacularly");
@@ -237,8 +238,9 @@ sub msg_get {
    my $self      = shift;
    my $user_conf = shift;
    my $msgno     = shift;
+   my $mopt      = shift;
    $msgno = sprintf("%07d", $msgno);
-   return $self->getconf("msg/$msgno");
+   return $self->getconf("msg/$msgno", $mopt);
 }
 
 sub sleep {
@@ -873,6 +875,8 @@ sub menu_read_byNum {
       $self->sendbbs(\%user_conf, "\@PCX{BLUE}Subject: \@PCX{ORANGE}".$msg->{subject}."\@PCX{LIGHTGRAY}\r\n");
       $self->sendbbs(\%user_conf, "\@PCX{PURPLE}"."-" x 35 . "\@PCX{LIGHTGRAY}\r\n");
       $self->sendbbs(\%user_conf, "\r\n\r\n");
+      $msg->{msg} =~ s/\\\\/\\/g; # clean up escaped slashies
+      print ">>>".$msg->{msg} . "<<<\n";
       $self->sendbbs(\%user_conf, $msg->{msg});
    }
    
@@ -912,7 +916,7 @@ sub menu_list_byNum {
    LIST: foreach my $msgno ( @nums ) {
       last LIST if $q >= 25;
       # --------- #
-      my $msg   = $self->msg_get(\%user_conf, $msgno);
+      my $msg   = $self->msg_get(\%user_conf, $msgno, {quiet=>1});
       # --------- #
       next LIST if ref($msg) !~ /HASH/;
       $msg->{user}    //= "spaceboyfriend";
@@ -926,24 +930,6 @@ sub menu_list_byNum {
       # --------- #
       $q++;
    }
-   
-   
-   # if ( ref($msg) =~ /HASH/ ) {
-   #    # $msg->{user} //= "unknown";
-   #    $msg->{user}    //= "spaceboyfriend";
-   #    $msg->{subject} //= "mysterious message";
-   #    
-   #    $self->debug("msgget", Dumper([\%user_conf, $msg]));
-   #    
-   #    $self->sendbbs(\%user_conf, "\@PCX{PURPLE}"."-" x 35 . "\@PCX{LIGHTGRAY}\r\n");
-   #    $self->sendbbs(\%user_conf, "\@PCX{BLUE}From: \@PCX{CYAN}".$msg->{user}."\@PCX{LIGHTGRAY}\r\n");
-   #    $self->sendbbs(\%user_conf, "\@PCX{BLUE}Date: \@PCX{CYAN}".$msg->{date}."\@PCX{LIGHTGRAY}\r\n");
-   #    $self->sendbbs(\%user_conf, "\@PCX{BLUE}Subject: \@PCX{ORANGE}".$msg->{subject}."\@PCX{LIGHTGRAY}\r\n");
-   #    $self->sendbbs(\%user_conf, "\@PCX{PURPLE}"."-" x 35 . "\@PCX{LIGHTGRAY}\r\n");
-   #    $self->sendbbs(\%user_conf, "\r\n\r\n");
-   #    $self->sendbbs(\%user_conf, $msg->{msg});
-   # }
-   
    
    $self->sendbbs(\%user_conf, "\r\n\r\n");
    
