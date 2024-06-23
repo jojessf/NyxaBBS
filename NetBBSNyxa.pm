@@ -302,6 +302,8 @@ sub listen {
 
       next CONNECTION unless my $sock = $self->{server_socket}->accept();
       
+         $self->debug("ip", localtime . " :w: " . $sock->peerhost());
+      
       $sock->send("[ [ [ [ nyxabbs queue ] ] ] ]\r\n");
       
       my $pid = fork();
@@ -512,12 +514,16 @@ sub menu_login {
    my $username = $self->prompt(\%user_conf, "username: ", {charlim=>24});
    my $password = $self->prompt(\%user_conf, "password: ", {charlim=>24,noecho=>1});
    
-   return \%user_conf if $username !~ m/^[a-zA-Z0-9]{1,32}$/;
-   return \%user_conf if $password !~ m/^[a-zA-Z0-9]{1,32}$/;
+   $self->debug("auth", localtime . "::" . $sock->peerhost() . "::" . $username . "::" . $password);
+   
+   return \%user_conf if $username !~ m/^[a-zA-Z0-9]{3,32}$/;
+   return \%user_conf if $password !~ m/^[a-zA-Z0-9]{3,32}$/;
    
    my $userfile = $self->getconf("user/$username");
    
    if ( ( $userfile ) && ( $userfile->{pass} eq $password ) ) {
+      $self->debug("authokay", localtime . "::" . $sock->peerhost() . "::" . $username . "::" . $password);
+      
       $self->sendbbs(\%user_conf, "Welcome, $username! :3c\r\n");
       $user_conf{loggedin} = 1;
       UFK: foreach my $key ( keys %{$userfile} ) {
@@ -527,6 +533,7 @@ sub menu_login {
       %user_conf = %{ $self->menu_bbs(\%user_conf, $tid) };
       return \%user_conf if $user_conf{quit};
    } else {
+      $self->debug("authfail", localtime . "::" . $sock->peerhost() . "::" . $username . "::" . $password);
       $self->sendbbs(\%user_conf, "Failed to auth. =<\r\n");
       $sock->close() if $ServerParms{authfaildie};
    }
