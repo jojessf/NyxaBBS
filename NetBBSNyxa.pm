@@ -21,8 +21,6 @@ sub new {
       class           => $class,
       server_socket   => $server_socket,
       ServerParms     => $serverparm,
-      threads         => {},
-      threadq         => 0,
       json            => JSON->new->allow_nonref,
       
       list_lim        => 8,
@@ -90,7 +88,10 @@ sub quit {
 sub timeset {
    my $self             = shift;
    my $user_conf        = shift;
-   $user_conf->{timeit} = time;
+   my $fpid = $user_conf->{fpid};
+   my $now  = time;
+   $self->{fpids}->{ $fpid } = $now;
+   $user_conf->{timeit}      = $now;
    return 1;
 }
 
@@ -155,7 +156,7 @@ sub debug {
    if ( ! -d $self->{ServerParms}->{debugdir} ) {
       mkdir($self->{ServerParms}->{debugdir}) or die "can't mkdir" . __LINE__ . "\n";
    }
-   open DLOG, ">>" . $self->{ServerParms}->{debugdir}."/".$lvl.".".$self->{threadq}.".log";
+   open DLOG, ">>" . $self->{ServerParms}->{debugdir}."/".$lvl.".log";
    print DLOG $msg . "\n";
    close DLOG;
    return;
@@ -325,18 +326,11 @@ sub listen {
             $user_conf{ip}   = $sock->peerhost();
             $user_conf{port} = $sock->peerport();
             $user_conf{sock} = $sock;
-
-         $self->{threadq}++;
-         $self->{threadopenq}++;
-
-         $self->{threads}->{ $pid }->{sock}      = $sock;
-         $self->{threads}->{ $pid }->{user_conf} = dclone $self->{UserParmDefault};
-         $self->{threads}->{ $pid }->{user_conf}->{ip}   = $sock->peerhost();
-         $self->{threads}->{ $pid }->{user_conf}->{port} = $sock->peerport();
-         $self->{threads}->{ $pid }->{user_conf}->{sock} = $sock;
-         $self->{threads}->{ $pid }->{user_conf}->{tid}  = $pid;
+            $user_conf{fpid} = $pid;
+            $user_conf{tid}  = $pid;
          
-         $self->menu_zero($pid);
+         $self->debug("pidip", "".$pid.":".$user_conf{ip}.":".time.":".localtime );
+         $self->menu_zero(\%user_conf, $pid);
          return; # we never wanna recover from here uwu
       }
 
@@ -385,11 +379,10 @@ sub prompt {
 # --------------------------------------------------------------------------- #
 sub menu_zero {
    my $self        = shift;
+   my $user_conf   = shift;
    my $tid         = shift;
-   my $sock        = $self->{threads}->{ $tid }->{sock};
-   my $thread      = $self->{threads}->{ $tid }->{thread};
+   my $sock        = $user_conf->{sock};
    
-   my $user_conf   = $self->{threads}->{ $tid }->{user_conf};
    my %ServerParms = %{ $self->{ServerParms} };
    my $user_data   = undef;
    
@@ -447,8 +440,7 @@ sub menu_register {
    my $self = shift;
    my %user_conf   = %{ +shift };
    my $tid         = shift;
-   my $sock        = $self->{threads}->{ $tid }->{sock};
-   my $thread      = $self->{threads}->{ $tid }->{thread};
+   my $sock        = $user_conf{sock};
    my %ServerParms = %{ $self->{ServerParms} };
    my $user_data   = undef;
    
@@ -520,8 +512,7 @@ sub menu_login {
    my $self = shift;
    my %user_conf   = %{ +shift };
    my $tid         = shift;
-   my $sock        = $self->{threads}->{ $tid }->{sock};
-   my $thread      = $self->{threads}->{ $tid }->{thread};
+   my $sock        = $user_conf{sock};
    my %ServerParms = %{ $self->{ServerParms} };
    my $user_data   = undef;
    
@@ -603,13 +594,12 @@ sub menu_main {
    my $self = shift;
    my %user_conf   = %{ +shift };
    my $tid         = shift;
-   my $sock        = $self->{threads}->{ $tid }->{sock};
-   my $thread      = $self->{threads}->{ $tid }->{thread};
+   my $sock        = $user_conf{sock};
    my %ServerParms = %{ $self->{ServerParms} };
    my $user_data   = undef;
 
    $self->timeset(\%user_conf);
-
+   $self->debug("upidip", "".$user_conf{fpid}.":".$user_conf{ip}.":".time.":".localtime );
       # --------------------------------------------------------------------------- #
       if ( $user_conf{PETSCII} ) {
          foreach my $pc (split/\r/, $ServerParms{PETSCIISplash00}) {$sock->send($pc."\r");}
