@@ -23,7 +23,8 @@ my %ServerParms = (
     debugdir          => 'debug',
     logdir            => 'log',
     confdir           => 'conf',
-    PETSCIISplash00FI => "nyxabbs.splash",
+    PETSCIISplash00FI => "res/nyxabbs.splash",
+    PETSCIISplash01FI => "res/nyxacitynight.splash",
     menumsg_land => "\r\n\r\n\@PCX{CYAN}~\@PCX{LIGHTBLUE}UwU\@PCX{CYAN}~\@PCX{PURPLE}".
                   "NyxaBBS\@PCX{LIGHTGRAY}:\@PCX{LIGHTGREEN}LandingMenu".
                   "\@PCX{CYAN}~\@PCX{LIGHTGRAY}\@PCX{LIGHTBLUE}UwU\@PCX{CYAN}~\@PCX{LIGHTGRAY} \r\n\r\n" . 
@@ -31,7 +32,7 @@ my %ServerParms = (
                   "[\@PCX{CYAN}l\@PCX{LIGHTGRAY}]ogin ".
                   "[\@PCX{GREEN}r\@PCX{LIGHTGRAY}]egister ".
                   "[\@PCX{PURPLE}s\@PCX{LIGHTGRAY}]tats\r\n",
-    menumsg_bbs => "\r\n\r\n\@PCX{CYAN}~\@PCX{LIGHTBLUE}UwU\@PCX{CYAN}~\@PCX{PURPLE}".
+    menumsg_bbs => "\@PCX{CYAN}~\@PCX{LIGHTBLUE}UwU\@PCX{CYAN}~\@PCX{PURPLE}".
                   "NyxaBBS\@PCX{LIGHTGRAY}:\@PCX{LIGHTGREEN}BBSMenu".
                   "\@PCX{CYAN}~\@PCX{LIGHTGRAY}\@PCX{LIGHTBLUE}UwU\@PCX{CYAN}~\@PCX{LIGHTGRAY} \r\n\r\n" . 
                   "[\@PCX{CYAN}l\@PCX{LIGHTGRAY}]list ".
