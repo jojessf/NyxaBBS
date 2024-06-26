@@ -33,3 +33,4 @@ Available under terms of GPLv3 'cuz am lazy https://www.gnu.org/licenses/gpl-3.0
 ![splash0](res/screencaps/20240626landing.png)
 ![splash2](res/screencaps/20240626splash2.png)
 ![stats](res/screencaps/20240626stats.png)
+![samplemsg](res/screencaps/20240626msg.png)
