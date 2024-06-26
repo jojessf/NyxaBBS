@@ -27,7 +27,8 @@ sub new {
       
       list_lim        => 8,
       list_showdate   => 1,
-      
+      zerotimeout     => 10,    # TODO
+      authtimeout     => 180,   # TODO
       
       PETSCII2ASCII    => $Net::BBS::Nyxa::CharTable::PETSCII2ASCII,
       ASCII2PETSCII    => $Net::BBS::Nyxa::CharTable::ASCII2PETSCII,
@@ -84,6 +85,13 @@ sub quit {
    my $user_conf = shift;
       $user_conf->{quit} = 1;
    return;
+}
+
+sub timeset {
+   my $self             = shift;
+   my $user_conf        = shift;
+   $user_conf->{timeit} = time;
+   return 1;
 }
 
 sub sendbbs {
@@ -299,7 +307,7 @@ sub ascii2petscii {
 sub listen {
    my $self = shift;
    CONNECTION: while(1) {
-
+      
       next CONNECTION unless my $sock = $self->{server_socket}->accept();
       
          $self->debug("ip", localtime . " :w: " . $sock->peerhost());
@@ -333,6 +341,7 @@ sub listen {
       }
 
       $self->sleep(0.05); # sleep for 50ms between new sockets
+
    }
    return;
 } # listen
@@ -393,8 +402,11 @@ sub menu_zero {
    # --------------------------------------------------------------------------- #
    # Net::BBS::Nyxa::PRE
    # --------------------------------------------------------------------------- #
-   ZEROCON: while ($sock->connected()) {
-      $sock->recv( $user_data,  1024 );
+   
+   $self->timeset($user_conf);
+   
+   ZEROCON: while ($sock->connected()) {      
+      $sock->recv( $user_data,  1 );
       # ----------------------------- #
       my $res; 
       if ( $user_data =~ /^(c|c64)[\r\n]*$/i ) {
@@ -439,6 +451,8 @@ sub menu_register {
    my $thread      = $self->{threads}->{ $tid }->{thread};
    my %ServerParms = %{ $self->{ServerParms} };
    my $user_data   = undef;
+   
+   $self->timeset(\%user_conf);
    
    $self->sendbbs(\%user_conf, "OwO * REGISTRATION TIME * OwO\r\n");
    $self->sendbbs(\%user_conf, "Who are you tho?\r\n"),
@@ -511,6 +525,8 @@ sub menu_login {
    my %ServerParms = %{ $self->{ServerParms} };
    my $user_data   = undef;
    
+   $self->timeset(\%user_conf);
+   
    my $username = $self->prompt(\%user_conf, "username: ", {charlim=>24});
    my $password = $self->prompt(\%user_conf, "password: ", {charlim=>24,noecho=>1});
    
@@ -545,6 +561,9 @@ sub menu_stats {
    my $self      = shift;
    my %user_conf = %{ +shift };
    my $tid = $user_conf{tid};
+   
+   $self->timeset(\%user_conf);
+   
    $self->{bbs}->{BBSTAT} //= "\@PCX{PURPLE}" . "-" x 16 . "\@PCX{LIGHTGRAY}";
    $self->{bbs}->{laststat} = localtime;
    $self->sendbbs(\%user_conf, "\r\n");
@@ -588,6 +607,8 @@ sub menu_main {
    my $thread      = $self->{threads}->{ $tid }->{thread};
    my %ServerParms = %{ $self->{ServerParms} };
    my $user_data   = undef;
+
+   $self->timeset(\%user_conf);
 
       # --------------------------------------------------------------------------- #
       if ( $user_conf{PETSCII} ) {
@@ -671,6 +692,8 @@ sub menu_bbs {
    my %ServerParms = %{ $self->{ServerParms} };
    my $user_data   = undef;
       
+   $self->timeset(\%user_conf);
+   
       $self->debug("sessionstart", Dumper([\%user_conf]));
       
       # --------------------------------------------------------------------------- #
@@ -733,6 +756,14 @@ sub menu_bbs {
             $self->skipsplash;
          }
 
+         # ----------------------------- #
+         # [z]ecret
+         # ----------------------------- #
+         if ( $user_data =~ /^(z|zecret)[\r\n]*$/i ) {
+            %user_conf = %{ $self->menu_z_secret(\%user_conf, $tid) };
+            $self->skipsplash;
+         }
+
          
          # ----------------------------- #
          # [r]ead
@@ -790,6 +821,8 @@ sub menu_post {
    my $sock        = $user_conf{sock};
    my %ServerParms = %{ $self->{ServerParms} };
    my $user_data   = undef;
+   
+   $self->timeset(\%user_conf);
    
    $self->{bbs}->{postq}++;
    my $postq = $self->{bbs}->{postq};
@@ -865,6 +898,51 @@ sub menu_post {
 
 
 
+sub menu_z_secret {
+   my $self = shift;
+   my %user_conf   = %{+shift};
+   my $tid         = $user_conf{tid};
+   my $sock        = $user_conf{sock};
+   my %ServerParms = %{ $self->{ServerParms} };
+   my $user_data   = undef;
+      
+   $self->timeset(\%user_conf);
+   
+   if ( ! $user_conf{PETSCII} ) {
+      $self->sendbbs(\%user_conf, "Need PETSCII, sorry ;w; \r\n\r\n");
+      return \%user_conf;
+   }
+   
+   
+   $self->sendbbs(\%user_conf, );
+   my $fil = $self->prompt(\%user_conf, "\@PCX{CYAN}Filename:\@PCX{LIGHTGRAY}", {charlim=>64});
+      $fil =~ s/\///g;  # no paths for you, uwu
+      $fil = "res/" . $fil;
+   $self->sendbbs(\%user_conf, "\@PCX{LIGHTGRAY}"."-" x 35 . "\@PCX{LIGHTGRAY}\r\n");
+
+   if ( ! -e  $fil ) {
+      $self->sendbbs(\%user_conf, "\@PCX{RED}"."$fil not found ..."."\@PCX{LIGHTGRAY}\r\n");   
+   }
+
+
+   my $filbuffer;
+   if ( -e $fil ) {
+      open IF, "<" . $fil;
+      while (<IF>) { $filbuffer .= $_; }
+      close IF;
+      $filbuffer =~ s/[\n\r]//g;
+      # $filbuffer = "\x9F". $filbuffer. "\x9B"
+   }
+   print "[READ] $fil ".length($filbuffer)." B\n"; # TODO
+   
+   foreach my $pc (split/\r/, $filbuffer) {$sock->send($pc."\r");}
+   
+   $self->sendbbs(\%user_conf, "\@PCX{LIGHTGRAY}");
+   
+   return \%user_conf;
+} # menu_read
+
+
 sub menu_read_byNum {
    my $self = shift;
    my %user_conf   = %{+shift};
@@ -872,6 +950,8 @@ sub menu_read_byNum {
    my $sock        = $user_conf{sock};
    my %ServerParms = %{ $self->{ServerParms} };
    my $user_data   = undef;
+   
+   $self->timeset(\%user_conf);
       
    $self->sendbbs(\%user_conf, "\@PCX{LIGHTGRAY}Last msg : \@PCX{GREEN}".$self->{bbs}->{postq}."\@PCX{LIGHTGRAY}\r\n\r\n");  
    $self->sendbbs(\%user_conf, "\@PCX{CYAN}Enter message number\@PCX{LIGHTGRAY}\r\n");
@@ -912,6 +992,8 @@ sub menu_list_byNum {
    my $sock        = $user_conf{sock};
    my %ServerParms = %{ $self->{ServerParms} };
    my $user_data   = undef;
+      
+   $self->timeset(\%user_conf);
       
    my @nums = ();
    while (<conf/msg/*>) {
