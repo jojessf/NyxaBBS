@@ -566,7 +566,7 @@ sub menu_stats {
       $self->sendbbs(\%user_conf, "[ \@PCX{LIGHTGREEN}".sprintf("%-8s", $key)."\@PCX{LIGHTGRAY} ]\@PCX{CYAN} $val\@PCX{LIGHTGRAY}\r\n");
    }
    UCKey: foreach my $key (sort keys %user_conf) {
-      next UCKey if $key =~ /^(sock|user|pass|ip|port|USERSTAT|add[12]|city|computer|country|state|zip|tid|loggedin)$/;
+      next UCKey if $key =~ /^(sock|user|pass|ip|port|USERSTAT|add[12]|city|computer|country|state|zip|tid|loggedin|timeit|fpid|admin|loggedin)$/;
       my $val   = $user_conf{$key};
       next if (( ! defined($val) ) || ( $val eq '' ))  ;
       $self->sendbbs(\%user_conf, "[ \@PCX{GREEN}".sprintf("%-8s", $key)."\@PCX{LIGHTGRAY} ] \@PCX{CYAN}$val\@PCX{LIGHTGRAY}\r\n");
