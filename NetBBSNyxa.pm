@@ -52,21 +52,18 @@ sub new {
          
    # init vars 
    
-   $self->{bbs}->{postq} //= 0;
-   my $test_postq = $self->getconf("bbs/postq");
-   if ( $test_postq == 0 ) {
-      $self->saveconf("bbs/postq", {postq=> $self->{bbs}->{postq} });
-   } else {
-      $self->{bbs}->{postq} = $test_postq;
+   foreach my $default ( "postq", "userq" ) {
+      $self->{bbs}->{$default} ||= 0;
+      my $setval   = $self->getconf("bbs/$default");
+         $setval ||= 0;
+      $self->saveconf("bbs/$default", $setval );
    }
    
    # BBS Stats =====================================================
-   my $postq = $self->getconf("bbs/postq")->{postq};
-   $self->{bbs}->{postq} = $postq;
    
    # lastmsg [date] 
-   if ( $postq > 1 ) {
-      PQCHK: for (my $pq = $postq; $pq>=0; $pq--) {
+   if ( $self->{bbs}->{postq} > 1 ) {
+      PQCHK: for (my $pq = $self->{bbs}->{postq}; $pq>=0; $pq--) {
          my $lastmsg = $self->getconf("msg/".$self->postqfile($pq));
          if ( $lastmsg ne 0 ) {
             $self->{bbs}->{lastmsg} = $lastmsg->{date};
@@ -77,6 +74,36 @@ sub new {
    
    return $self;
 };
+
+sub getpostnums {
+   my $self = shift;
+   my @nums = ();
+   # postq
+   while (<conf/msg/*>) {
+      s/^conf\/msg\///;
+      s/^[ 0]+//g;
+      if ( $_ > $self->{bbs}->{postq} ) { 
+         $self->{bbs}->{postq} = $_;
+      }
+      push(@nums, $_);
+   }
+   $self->saveconf("bbs/postq", $self->{bbs}->{postq});
+   # lastmsg 
+   if ( $self->{bbs}->{postq} > 1 ) {
+      PQCHK: for (my $pq = $self->{bbs}->{postq}; $pq>=0; $pq--) {
+         my $lastmsg = $self->getconf("msg/".$self->postqfile($pq));
+         if ( $lastmsg ne 0 ) {
+            $self->{bbs}->{lastmsg} = $lastmsg->{date};
+            last PQCHK;
+         }
+      }
+   }
+   # userq
+   $self->{bbs}->{userq} = $self->getconf("bbs/userq");
+   
+   return @nums;
+}
+
 
 sub quit {
    my $self = shift;
@@ -195,8 +222,16 @@ sub saveconf {
    my $hash  = shift;
    my $opt   = shift; 
    my $filepath = $self->{ServerParms}->{confdir} . "/" . $file;
+   my $keyp;
    my $testpath = $filepath;
-      $testpath =~ s/^(.*)\/.*/$1/;
+   
+   $testpath =~ s/^(.*)\/(.*)/$1/;
+   $keyp = $2;
+      
+   $self->debug("saveconf", "$file, $keyp, $filepath, $testpath, $hash");
+   if (( $keyp ) && ( $file =~ /^bbs\// )) {
+      $self->{bbs}->{ $keyp } = $hash;
+   };
 
    $self->debug("conf", "saveconf - $filepath");
 
@@ -204,7 +239,8 @@ sub saveconf {
    die $self->{class} . "ERROR - can't make_path $testpath" if ! -d $testpath;
       
    my $jsonstr = $self->{json}->pretty->encode( $hash );
-   if ( -e $filepath ) { return 0; } 
+   
+   if ( ( $opt->{noclobber} ) && ( -e $filepath )) { return 0; }
    
    open OF, ">", $filepath;
    print OF $jsonstr;
@@ -239,7 +275,7 @@ sub msg_put {
    my $write = 0;
    while ( ! $write ) {
       $postq++;
-      $self->saveconf("bbs/postq", {postq=>$postq});
+      $self->saveconf("bbs/postq", $postq);
       $self->{bbs}->{postq} = $postq;
       $msg->{postq}         = $postq;
       $fi    = $self->postqfile($postq);
@@ -383,6 +419,9 @@ sub menu_zero {
    my $tid         = shift;
    my $sock        = $user_conf->{sock};
    
+   $self->getpostnums();
+   
+   
    my %ServerParms = %{ $self->{ServerParms} };
    my $user_data   = undef;
    
@@ -501,6 +540,11 @@ sub menu_register {
    if ( $okay =~ /y|yes|ja|hai|si/i ) {
       $self->sendbbs(\%user_conf, "Saving user: ".$user_file->{user}."\r\n");
       $self->saveconf("user/$username", $user_file);
+      
+      my $userq = $self->getconf("bbs/userq");
+      $userq++;
+      $self->saveconf("bbs/userq", $userq);
+      
    } else {
       $self->sendbbs(\%user_conf, "Aborting registration.\r\n");
    }
@@ -572,7 +616,7 @@ sub menu_stats {
       $self->sendbbs(\%user_conf, "[ \@PCX{GREEN}".sprintf("%-8s", $key)."\@PCX{LIGHTGRAY} ] \@PCX{CYAN}$val\@PCX{LIGHTGRAY}\r\n");
    }
    
-   ServKey: foreach my $key ("BBSTAT", "postq", "lastmsg", "now") {
+   ServKey: foreach my $key ("BBSTAT", "userq", "postq", "lastmsg", "now") {
       my $val = $self->{bbs}->{$key};
       my $pkey = $key;
       next if (( ! defined($val) ) || ( $val eq '' ));
@@ -816,7 +860,7 @@ sub menu_post {
    
    $self->{bbs}->{postq}++;
    my $postq = $self->{bbs}->{postq};
-   $self->saveconf("bbs/postq", {postq=>$self->{bbs}->{postq}});
+   $self->saveconf("bbs/postq", $self->{bbs}->{postq});
    
    $self->debug("poststart", Dumper([\%user_conf]));
    
@@ -876,7 +920,6 @@ sub menu_post {
       
       $self->sendbbs(\%user_conf, "\r\n\r\n");
       $self->sendbbs(\%user_conf, "\@PCX{LIGHTGRAY}");
-      # my $postq = $self->{bbs}->{postq};
       $self->msg_put(\%user_conf, $post, {draft=>$draft,subject=>$subject});
    }
    
@@ -984,17 +1027,8 @@ sub menu_list_byNum {
    my $user_data   = undef;
       
    $self->timeset(\%user_conf);
-      
-   my @nums = ();
-   while (<conf/msg/*>) {
-      s/^conf\/msg\///;
-      s/^[ 0]+//g;
-      if ( $_ > $self->{bbs}->{postq} ) { 
-         $self->{bbs}->{postq} = $_;
-      }
-      push(@nums, $_);
-   }
-   # @nums = reverse @nums; # breaks q aaa x3 fix this
+   my @nums = $self->getpostnums();
+
    
    $self->sendbbs(\%user_conf, "\@PCX{LIGHTGRAY}Last msg : \@PCX{GREEN}".$self->{bbs}->{postq}."\@PCX{LIGHTGRAY}\r\n\r\n");  
    $self->sendbbs(\%user_conf, "\@PCX{CYAN}Enter message number\@PCX{LIGHTGRAY}\r\n");
