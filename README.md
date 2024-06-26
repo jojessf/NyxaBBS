@@ -28,3 +28,8 @@ Version 0.3 (2024-06-19)
 
 # LICENSE
 Available under terms of GPLv3 'cuz am lazy https://www.gnu.org/licenses/gpl-3.0.en.html
+
+# SCREENCAPS
+![splash0](res/screencaps/20240626landing.png)
+![splash2](res/screencaps/20240626splash2.png)
+![stats](res/screencaps/20240626stats.png)
