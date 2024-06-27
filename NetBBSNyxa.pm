@@ -486,11 +486,14 @@ sub menu_register {
    $self->timeset(\%user_conf);
    
    $self->sendbbs(\%user_conf, "OwO * REGISTRATION TIME * OwO\r\n");
-   $self->sendbbs(\%user_conf, "Who are you tho?\r\n"),
+   $self->sendbbs(\%user_conf, "Who are you tho?\r\n");
    
    my $username = $self->prompt(\%user_conf, "username     : ", {charlim=>24});
-   if ( $self->getconf("user/$username") ) {
-      $self->sendbbs(\%user_conf, "Invalid user: ".$username."\r\n");
+   if ( 
+         ( $username !~ m/^[a-zA-Z0-9]+$/ ) || 
+         ( $self->getconf("user/$username") )
+   ) {
+      $self->sendbbs(\%user_conf, "Invalid user, sorry!  Pls try again.  ;w;\r\n");
       return \%user_conf;
    }
    
