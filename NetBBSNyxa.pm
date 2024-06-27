@@ -132,9 +132,10 @@ sub sendbbs {
    $msg = ascii_to_petscii($msg) if $user_conf->{PETSCII};
    
    if ( $user_conf->{PETSCII} )   { $msg = $self->colorcodes($msg) };
-   if ( ! $user_conf->{PETSCII} ) { $msg = $self->scrubcodes($msg) };
-   
-   print "PCX>>$msg<<\n" if $ENV{DEBUG} eq 'sendbbs';
+   if ( ! $user_conf->{PETSCII} ) { 
+      $msg = $self->scrubcodes($msg);
+      $msg =~ s/\x0d/\n/g;
+   };
    
    $sock->send($msg);
    # ---------------------- #
@@ -1010,10 +1011,10 @@ sub menu_read_byNum {
       $self->sendbbs(\%user_conf, "\r\n\r\n");
       $msg->{msg} =~ s/\x5c\x5c/\x5c/g; # clean up escaped slashies
       $msg->{msg} =~ s/\x5c\x72/\r/g; # clean up escaped slashies
-      
+      $msg->{msg} =~ s/\r/\n/g   if ! $user_conf{PETSCII};
+      $msg->{msg} =~ s/\x0d/\n/g if ! $user_conf{PETSCII};
       $self->sendbbs(\%user_conf, $msg->{msg});
    }
-   
    
    $self->sendbbs(\%user_conf, "\r\n\r\n");
    
