@@ -5,7 +5,7 @@ This is a guide on using VICE to connect to BBS servs over TPC.  Assumes you hav
 Vice RS232 Conf
 ===============
 
-![Vice RS232 Conf Example](maim.20260711.014416.231800459.1783748656_vice_rs232.png)
+![Vice RS232 Conf Example](screencaps/maim.20260711.014416.231800459.1783748656_vice_rs232.png)
 
 tcpser
 ------
