@@ -1,6 +1,8 @@
 # NyxaBBS
 Vulnerable PETSCII/C64 compatible perl BBS Daemon - just for fun, very wip
 
+![Here's](res/VICE.md) an example of using CCGMS (BBS PRG for C64) on VICE (C64 emulator) with tcpser (a linux/win application that acts as a virtual serial/tcp modem).
+
 # TODO
 * reformat character set 2 stuff for addition to the incomplete Text::Convert::PETSCII?
 * cpan-ize
