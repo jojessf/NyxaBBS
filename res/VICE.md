@@ -18,6 +18,7 @@ tcpser -v 25232 -p 6400 -S 2400 -l 4 -i"s5=20"
 ccgms
 -----
 Using CCGMS 0.2
+
 ![CCGMS Version/Splash](screencaps/maim.20260711.015305.845522678.1783749185_CCGMS_Splash_0.2.png)
 
 ![CCGMS Conf Example](screencaps/maim.20260711.015010.731486017.1783749010_CCGMS_CONF.png)
